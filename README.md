@@ -12,7 +12,7 @@ Designed to showcase deep real-world expertise in DevOps, GitOps, Security, CI/C
 |Frontend	|Planned: React (optional, not required for backend showcase)|
 |Microservices|	Go (Note), Python (Auth), Node.js (User), Java (Analytics)|
 |Databases	|PostgreSQL, MongoDB, MySQL|
-|API Gateway\	NGINX Ingress Controller on EKS|
+|API Gateway	| NGINX Ingress Controller on EKS|
 |CI/CD|	GitHub Actions, ArgoCD|
 |IaC	|Terraform (AWS Infra + EKS)|
 |Config Management|	Ansible (optional for bootstrap, SSH setup, DB)|
@@ -25,15 +25,15 @@ Designed to showcase deep real-world expertise in DevOps, GitOps, Security, CI/C
 
 ## 🎯 Key Features
 
-✅ Multi-service architecture using 4 microservices 
-✅ Each service deployed as a separate container on Kubernetes 
-✅ GitHub Actions pipeline for building, scanning, pushing, and deploying 
-✅ ArgoCD GitOps setup with Helm charts per service 
-✅ Secure credential management via Vault 
+✅ Multi-service architecture using 4 microservices  
+✅ Each service deployed as a separate container on Kubernetes   
+✅ GitHub Actions pipeline for building, scanning, pushing, and deploying  
+✅ ArgoCD GitOps setup with Helm charts per service  
+✅ Secure credential management via Vault  
 ✅ Pre-commit hooks for security and quality checks 
-✅ Centralized logging, metrics, and health checks 
-✅ Environment isolation using K8s namespaces (dev, preprod, prod) 
-✅ Cost-optimized AWS Free Tier deployment (< ₹500) 
+✅ Centralized logging, metrics, and health checks  
+✅ Environment isolation using K8s namespaces (dev, preprod, prod)  
+✅ Cost-optimized AWS Free Tier deployment (< ₹500)  
 
 ## 🛠️ DevOps Implementations
 | Area |	Highlights |
@@ -68,10 +68,10 @@ User → Ingress (NGINX) → Microservices → DBs
 
 ## 🧪 What This Project Demonstrates
 
-✔️ End-to-End DevOps Ownership
-✔️ Secure Software Supply Chain Practices
-✔️ GitOps + Multi-Environment Delivery
-✔️ Cloud-Native Application Deployment on AWS
-✔️ Production Observability and Monitoring
-✔️ Industry-grade Infrastructure as Code
-✔️ Highly Modular, Maintainable Codebase
+✔️ End-to-End DevOps Ownership  
+✔️ Secure Software Supply Chain Practices  
+✔️ GitOps + Multi-Environment Delivery  
+✔️ Cloud-Native Application Deployment on AWS  
+✔️ Production Observability and Monitoring  
+✔️ Industry-grade Infrastructure as Code  
+✔️ Highly Modular, Maintainable Codebase  
