@@ -1,0 +1,49 @@
+name: Pull Request Checks
+
+on:
+  pull_request:
+    branches:
+      - main
+      - staging
+
+jobs:
+  pre-commit:
+    name: Pre-commit Checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pre-commit/action@v3.0.1
+
+  secrets-check:
+    name: Secrets Detection
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Scan for secrets
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.pull_request.base.ref }}
+          head: ${{ github.event.pull_request.head.ref }}
+
+  terraform-checks:
+    name: Terraform Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Terraform
+        run: |
+          for env in dev staging prod; do
+            cd terraform/environments/$env
+            terraform init -backend=false
+            terraform validate
+            cd ../../..
+          done

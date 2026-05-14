@@ -1,0 +1,17 @@
+apiVersion: v2
+name: analytics-service
+description: Analytics Service - Java Spring Boot microservice for reports
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+
+keywords:
+  - analytics-service
+  - analytics
+  - java
+  - spring-boot
+  - reports
+
+maintainers:
+  - name: CloudNotes Team
+    email: devops@cloudnotes.dev

@@ -1,0 +1,35 @@
+# Terraform
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+.terraform/
+.terraform.lock.hcl
+crash.log
+crash.*.log
+*.out
+*.log
+
+# Secrets
+secrets.tfvars
+*secret*
+*.pem
+*.key
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Backup
+*.backup
+*.bak
+
+# Module cache
+.modules/

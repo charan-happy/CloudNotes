@@ -1,0 +1,55 @@
+replicaCount: 3
+
+image:
+  tag: "prod-$(GIT_COMMIT)"
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 60
+
+ingress:
+  enabled: true
+  annotations:
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+  hosts:
+    - host: api.cloudnotes.dev
+      paths:
+        - path: /auth
+          pathType: Prefix
+          port: 443
+  tls:
+    - secretName: prod-auth-service-tls
+      hosts:
+        - api.cloudnotes.dev
+
+env:
+  - name: FLASK_ENV
+    value: "production"
+  - name: LOG_LEVEL
+    value: "WARNING"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+  sysctls:
+    - name: net.ipv4.ping_group_range
+      value: "0 2147483647"
+
+securityContext:
+  capabilities:
+    drop:
+      - ALL
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true

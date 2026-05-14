@@ -1,0 +1,16 @@
+apiVersion: v2
+name: auth-service
+description: Auth Service - Python Flask authentication microservice
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+
+keywords:
+  - auth-service
+  - authentication
+  - jwt
+  - flask
+
+maintainers:
+  - name: CloudNotes Team
+    email: devops@cloudnotes.dev

@@ -75,3 +75,40 @@ User → Ingress (NGINX) → Microservices → DBs
 ✔️ Production Observability and Monitoring  
 ✔️ Industry-grade Infrastructure as Code  
 ✔️ Highly Modular, Maintainable Codebase  
+
+## 🚀 Quick Start
+
+```bash
+# Clone the repository
+git clone https://github.com/charan-happy/CloudNotes.git
+cd CloudNotes
+
+# Deploy infrastructure
+cd terraform/environments/dev
+terraform init
+terraform plan
+terraform apply
+
+# Deploy to Kubernetes
+kubectl apply -f kubernetes/namespaces/
+kubectl apply -f kubernetes/argocd/
+kubectl apply -f kubernetes/apps/
+```
+
+## 📁 Project Structure
+
+```
+CloudNotes/
+├── terraform/           # Infrastructure as Code
+│   ├── modules/        # Reusable Terraform modules
+│   └── environments/   # dev, staging, prod configs
+├── kubernetes/         # Kubernetes manifests
+│   ├── argocd/        # ArgoCD installation
+│   ├── ingress/       # NGINX Ingress
+│   ├── namespaces/    # Namespace definitions
+│   ├── services/      # Helm charts for microservices
+│   ├── apps/          # ArgoCD Applications
+│   └── monitoring/    # Prometheus, Grafana, Loki
+├── .github/workflows/ # GitHub Actions CI/CD
+└── docs/              # Architecture & runbooks
+```  

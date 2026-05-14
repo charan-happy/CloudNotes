@@ -1,0 +1,16 @@
+apiVersion: v2
+name: note-service
+description: Note Service - Go microservice for CRUD operations
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+
+keywords:
+  - note-service
+  - notes
+  - go
+  - mongodb
+
+maintainers:
+  - name: CloudNotes Team
+    email: devops@cloudnotes.dev

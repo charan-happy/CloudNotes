@@ -1,0 +1,24 @@
+replicaCount: 1
+
+image:
+  tag: "dev-$(GIT_COMMIT)"
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 250m
+    memory: 256Mi
+
+autoscaling:
+  enabled: false
+
+ingress:
+  enabled: false
+
+env:
+  - name: FLASK_ENV
+    value: "development"
+  - name: LOG_LEVEL
+    value: "DEBUG"

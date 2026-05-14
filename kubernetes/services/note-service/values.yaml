@@ -1,0 +1,152 @@
+replicaCount: 2
+
+image:
+  repository: PUBLIC_ECR_REPO/auth-service
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8080"
+  prometheus.io/path: "/metrics"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  capabilities:
+    drop:
+      - ALL
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+
+service:
+  type: ClusterIP
+  port: 8080
+  targetPort: 8080
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+  hosts:
+    - host: api.cloudnotes.dev
+      paths:
+        - path: /auth
+          pathType: Prefix
+          port: 443
+  tls:
+    - secretName: auth-service-tls
+      hosts:
+        - api.cloudnotes.dev
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: auth-service
+          topologyKey: topology.kubernetes.io/zone
+
+env:
+  - name: FLASK_ENV
+    value: "production"
+  - name: LOG_LEVEL
+    value: "INFO"
+  - name: DB_HOST
+    valueFrom:
+      secretKeyRef:
+        name: db-credentials
+        key: postgresql.host
+  - name: DB_PORT
+    valueFrom:
+      secretKeyRef:
+        name: db-credentials
+        key: postgresql.port
+  - name: DB_NAME
+    valueFrom:
+      secretKeyRef:
+        name: db-credentials
+        key: postgresql.dbname
+  - name: DB_USER
+    valueFrom:
+      secretKeyRef:
+        name: db-credentials
+        key: postgresql.username
+  - name: DB_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: db-credentials
+        key: postgresql.password
+  - name: JWT_SECRET_KEY
+    valueFrom:
+      secretKeyRef:
+        name: jwt-keys
+        key: secret_key
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8080
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /ready
+    port: 8080
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+configMap:
+  data:
+    APP_NAME: "auth-service"
+    SWAGGER_UI: "true"
+
+persistence:
+  enabled: false
+
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    interval: 30s

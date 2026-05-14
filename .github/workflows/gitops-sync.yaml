@@ -1,0 +1,46 @@
+name: GitOps Sync
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'kubernetes/**'
+
+jobs:
+  sync-to-argocd:
+    name: Sync to ArgoCD
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Install ArgoCD CLI
+        run: |
+          curl -sSL -o /usr/local/bin/argocd https://github.com/argoproj/argo-cd/releases/download/v2.10.0/argocd-linux-amd64
+          chmod +x /usr/local/bin/argocd
+
+      - name: Login to ArgoCD
+        run: |
+          argocd login ${{ secrets.ARGOCD_SERVER }} \
+            --username ${{ secrets.ARGOCD_USERNAME }} \
+            --password ${{ secrets.ARGOCD_PASSWORD }} \
+            --insecure
+
+      - name: Sync applications
+        run: |
+          argocd app sync auth-service || true
+          argocd app sync note-service || true
+          argocd app sync user-service || true
+          argocd app sync analytics-service || true
+
+      - name: Wait for sync
+        run: |
+          argocd app wait auth-service --sync --timeout 300 || true
+
+      - name: Post sync status
+        if: always()
+        run: |
+          argocd app get auth-service

@@ -1,0 +1,67 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: cloudnotes-services
+  namespace: argocd
+spec:
+  generators:
+    - matrix:
+        generators:
+          - name: services
+            list:
+              elements:
+                - name: auth-service
+                  path: kubernetes/services/auth-service
+                  namespace: cloudnotes
+                - name: note-service
+                  path: kubernetes/services/note-service
+                  namespace: cloudnotes
+                - name: user-service
+                  path: kubernetes/services/user-service
+                  namespace: cloudnotes
+                - name: analytics-service
+                  path: kubernetes/services/analytics-service
+                  namespace: cloudnotes
+          - name: environments
+            list:
+              elements:
+                - env: dev
+                  cluster: https://kubernetes.default.svc
+                - env: staging
+                  cluster: https://kubernetes.default.svc
+                - env: prod
+                  cluster: https://kubernetes.default.svc
+  template:
+    metadata:
+      name: '{{path.name}}-{{env}}'
+      namespace: argocd
+      labels:
+        app.kubernetes.io/name: '{{path.name}}'
+        environment: '{{env}}'
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/charan-happy/CloudNotes.git
+        targetRevision: main
+        path: '{{path.path}}'
+        helm:
+          valueFiles:
+            - values-{{env}}.yaml
+      destination:
+        server: '{{path.cluster}}'
+        namespace: '{{env}}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+          allowEmpty: false
+        syncOptions:
+          - CreateNamespace=true
+          - PruneLast=true
+        retry:
+          limit: 3
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 1m

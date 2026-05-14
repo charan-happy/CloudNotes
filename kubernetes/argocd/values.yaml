@@ -1,0 +1,77 @@
+global:
+  image:
+    tag: "v2.10.0"
+
+server:
+  service:
+    type: LoadBalancer
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+      service.beta.kubernetes.io/aws-load-balancer-ssl-cert: "${ACM_CERT_ARN}"
+      service.beta.kubernetes.io/aws-load-balancer-ssl-ports: "443"
+
+  ingress:
+    enabled: false
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+controller:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+
+repoServer:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+redis:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+
+configs:
+  rbac:
+    policy.csv: |
+      g, system:authenticated, role:admin
+      g, argocd-admins, role:admin
+
+  secret:
+    argocdServerAdminPassword: "${ARGOCD_ADMIN_PASSWORD_HASH}"
+    argocdServerAdminPasswordMtime: "${ADMIN_PASSWORD_MTIME}"
+
+  cm:
+    resourceTrackingMethod: "annotation"
+    application.instanceLabelKey: "argocd.argopro.io/instance"
+
+  tls:
+    ca: |
+      ${TLS_CERT}
+
+repoServer:
+  serviceAccount:
+    create: true
+    name: "argocd-repo-server"
+
+controller:
+  serviceAccount:
+    create: true
+    name: "argocd-application-controller"

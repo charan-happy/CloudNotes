@@ -1,0 +1,37 @@
+replicaCount: 2
+
+image:
+  tag: "staging-$(GIT_COMMIT)"
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+
+ingress:
+  enabled: true
+  hosts:
+    - host: staging-api.cloudnotes.dev
+      paths:
+        - path: /auth
+          pathType: Prefix
+          port: 443
+  tls:
+    - secretName: staging-auth-service-tls
+      hosts:
+        - staging-api.cloudnotes.dev
+
+env:
+  - name: FLASK_ENV
+    value: "staging"
+  - name: LOG_LEVEL
+    value: "INFO"
