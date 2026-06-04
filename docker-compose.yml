@@ -1,0 +1,135 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CloudNotes — local dev stack
+#
+#  Start all services:   docker compose up --build
+#  Start one service:    docker compose up auth-service
+#  Rebuild one service:  docker compose up --build note-service
+#  View logs:            docker compose logs -f
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: cloudnotes-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER:-cloudnotes}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cloudnotes}
+      POSTGRES_DB:       ${POSTGRES_DB:-cloudnotes}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cloudnotes"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Auth Service (Python / FastAPI) ─────────────────────────────────────────
+  auth-service:
+    build:
+      context: ./src/auth-service
+      dockerfile: Dockerfile
+    container_name: cloudnotes-auth
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-cloudnotes}:${POSTGRES_PASSWORD:-cloudnotes}@postgres:5432/${POSTGRES_DB:-cloudnotes}
+      JWT_SECRET:   ${JWT_SECRET:-dev-secret-change-in-prod}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ── Note Service (Go / Gin) ──────────────────────────────────────────────────
+  note-service:
+    build:
+      context: ./src/note-service
+      dockerfile: Dockerfile
+    container_name: cloudnotes-notes
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      PORT:         "8001"
+      DATABASE_URL: postgresql://${POSTGRES_USER:-cloudnotes}:${POSTGRES_PASSWORD:-cloudnotes}@postgres:5432/${POSTGRES_DB:-cloudnotes}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8001/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ── User Service (Java / Spring Boot) ───────────────────────────────────────
+  user-service:
+    build:
+      context: ./src/user-service
+      dockerfile: Dockerfile
+    container_name: cloudnotes-users
+    restart: unless-stopped
+    ports:
+      - "8002:8002"
+    environment:
+      SPRING_DATASOURCE_URL:      jdbc:postgresql://postgres:5432/${POSTGRES_DB:-cloudnotes}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-cloudnotes}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-cloudnotes}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8002/actuator/health || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 40s     # Spring Boot takes longer to start
+
+  # ── Analytics Service (Node.js / Express) ───────────────────────────────────
+  analytics-service:
+    build:
+      context: ./src/analytics-service
+      dockerfile: Dockerfile
+    container_name: cloudnotes-analytics
+    restart: unless-stopped
+    ports:
+      - "8003:8003"
+    environment:
+      PORT:         "8003"
+      DATABASE_URL: postgresql://${POSTGRES_USER:-cloudnotes}:${POSTGRES_PASSWORD:-cloudnotes}@postgres:5432/${POSTGRES_DB:-cloudnotes}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8003/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ── Frontend (Next.js) ───────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./src/frontend
+      dockerfile: Dockerfile
+    container_name: cloudnotes-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://auth-service:8000
+    depends_on:
+      - auth-service
+
+volumes:
+  postgres_data:

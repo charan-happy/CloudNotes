@@ -33,6 +33,8 @@ export default function Toolbar({ editor, note }: Props) {
   const [linkUrl, setLinkUrl] = useState('')
   const [showYtInput, setShowYtInput] = useState(false)
   const [ytUrl, setYtUrl] = useState('')
+  const [showEmbedInput, setShowEmbedInput] = useState(false)
+  const [embedUrl, setEmbedUrl] = useState('')
   const imageRef = useRef<HTMLInputElement>(null)
   const exportRef = useRef<HTMLDivElement>(null)
 
@@ -168,6 +170,9 @@ export default function Toolbar({ editor, note }: Props) {
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18M10 3v18M14 3v18M3 6a3 3 0 013-3h12a3 3 0 013 3v12a3 3 0 01-3 3H6a3 3 0 01-3-3V6z" /></svg>
           </Btn>
           <Btn onClick={() => setShowLinkInput(v => !v)} active={editor.isActive('link') || showLinkInput} title="Insert link">🔗</Btn>
+          <Btn onClick={() => setShowEmbedInput(v => !v)} active={showEmbedInput} title="Embed diagram (Excalidraw / Miro / Lucidchart)">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" /></svg>
+          </Btn>
         </div>
         <Sep />
 
@@ -236,6 +241,53 @@ export default function Toolbar({ editor, note }: Props) {
           />
           <button onClick={insertYouTube} className="text-sm bg-red-600 hover:bg-red-500 text-white px-3 py-1.5 rounded-lg transition">Embed</button>
           <button onClick={() => setShowYtInput(false)} className="text-sm text-slate-500 hover:text-white transition">Cancel</button>
+        </div>
+      )}
+
+      {/* Embed diagram bar (Excalidraw / Miro / Lucidchart / any iframe URL) */}
+      {showEmbedInput && (
+        <div className="flex flex-col gap-2 px-4 py-2.5 bg-[#111114] border-b border-white/5">
+          <div className="flex items-center gap-1.5 text-xs text-slate-500">
+            <span>Supported:</span>
+            {['Excalidraw', 'Miro', 'Lucidchart', 'draw.io', 'FigJam'].map(t => (
+              <span key={t} className="px-2 py-0.5 rounded bg-slate-800 text-slate-400">{t}</span>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              autoFocus
+              value={embedUrl}
+              onChange={e => setEmbedUrl(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  if (embedUrl) {
+                    editor.chain().focus().insertContent(
+                      `<p><a href="${embedUrl}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:10px 16px;background:#1e1b4b;color:#a5b4fc;border-radius:8px;text-decoration:none;font-size:13px;border:1px solid #3730a3;">🔗 Open diagram in ${embedUrl.includes('excalidraw') ? 'Excalidraw' : embedUrl.includes('miro') ? 'Miro' : embedUrl.includes('lucidchart') ? 'Lucidchart' : 'external tool'} ↗</a></p>`
+                    ).run()
+                    setEmbedUrl('')
+                    setShowEmbedInput(false)
+                  }
+                }
+                if (e.key === 'Escape') setShowEmbedInput(false)
+              }}
+              placeholder="Paste Excalidraw / Miro / Lucidchart share URL…"
+              className="flex-1 bg-slate-800 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-violet-500"
+            />
+            <button
+              onClick={() => {
+                if (embedUrl) {
+                  editor.chain().focus().insertContent(
+                    `<p><a href="${embedUrl}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:10px 16px;background:#1e1b4b;color:#a5b4fc;border-radius:8px;text-decoration:none;font-size:13px;border:1px solid #3730a3;">🔗 Open diagram in ${embedUrl.includes('excalidraw') ? 'Excalidraw' : embedUrl.includes('miro') ? 'Miro' : embedUrl.includes('lucidchart') ? 'Lucidchart' : 'diagram tool'} ↗</a></p>`
+                  ).run()
+                  setEmbedUrl('')
+                  setShowEmbedInput(false)
+                }
+              }}
+              className="text-sm bg-violet-700 hover:bg-violet-600 text-white px-3 py-1.5 rounded-lg transition">
+              Embed
+            </button>
+            <button onClick={() => setShowEmbedInput(false)} className="text-sm text-slate-500 hover:text-white transition">Cancel</button>
+          </div>
         </div>
       )}
     </div>

@@ -68,17 +68,17 @@ export default function DashboardPage() {
   function createNote() {
     const note = defaultNote()
     const next = [note, ...notes]
-    setNotes(next); saveNotes(next); setActiveId(note.id)
+    setNotes(next); saveNotes(username, next); setActiveId(note.id)
   }
 
   function updateNote(id: string, patch: Partial<Note>) {
     const next = notes.map(n => n.id === id ? { ...n, ...patch, updatedAt: Date.now() } : n)
-    setNotes(next); saveNotes(next)
+    setNotes(next); saveNotes(username, next)
   }
 
   function deleteNote(id: string) {
     const next = notes.filter(n => n.id !== id)
-    setNotes(next); saveNotes(next)
+    setNotes(next); saveNotes(username, next)
     setActiveId(next.length > 0 ? next[0].id : null)
   }
 
@@ -100,7 +100,7 @@ export default function DashboardPage() {
         const data = JSON.parse(reader.result as string) as Note[]
         if (!Array.isArray(data)) throw new Error()
         const merged = [...data, ...notes.filter(n => !data.find(d => d.id === n.id))]
-        setNotes(merged); saveNotes(merged)
+        setNotes(merged); saveNotes(username, merged)
         if (data.length > 0) setActiveId(data[0].id)
         alert(`Restored ${data.length} notes.`)
       } catch {
