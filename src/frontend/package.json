@@ -9,8 +9,11 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@hocuspocus/provider": "^2.15.3",
     "@tiptap/extension-character-count": "^3.25.0",
     "@tiptap/extension-code-block-lowlight": "^3.25.0",
+    "@tiptap/extension-collaboration": "^3.25.0",
+    "@tiptap/extension-collaboration-caret": "^3.25.0",
     "@tiptap/extension-color": "^3.25.0",
     "@tiptap/extension-highlight": "^3.25.0",
     "@tiptap/extension-image": "^3.25.0",
@@ -32,7 +35,8 @@
     "next": "16.2.7",
     "react": "19.2.4",
     "react-dom": "19.2.4",
-    "turndown": "^7.2.4"
+    "turndown": "^7.2.4",
+    "yjs": "^13.6.31"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

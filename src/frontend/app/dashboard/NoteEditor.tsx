@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Image from '@tiptap/extension-image'
@@ -14,6 +14,10 @@ import { TextStyle } from '@tiptap/extension-text-style'
 import Highlight from '@tiptap/extension-highlight'
 import Link from '@tiptap/extension-link'
 import CharacterCount from '@tiptap/extension-character-count'
+import Collaboration from '@tiptap/extension-collaboration'
+import CollaborationCaret from '@tiptap/extension-collaboration-caret'
+import * as Y from 'yjs'
+import { HocuspocusProvider } from '@hocuspocus/provider'
 
 import Toolbar from './Toolbar'
 import { NOTE_COLORS, EMOJIS, type Note, downloadFile } from './types'
@@ -32,6 +36,17 @@ async function fileToBase64(file: File): Promise<string> {
     const r = new FileReader(); r.onload = () => res(r.result as string); r.onerror = rej; r.readAsDataURL(file)
   })
 }
+
+// Stable per-user cursor color for collaboration carets.
+function userColor(name: string): string {
+  let h = 0
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 360
+  return `hsl(${h}, 70%, 55%)`
+}
+
+// Live URL of the collab-service WebSocket. Browser-side, so it must be reachable
+// from the host (not the docker network name) — defaults to local dev.
+const COLLAB_URL = process.env.NEXT_PUBLIC_COLLAB_URL || 'ws://localhost:8004'
 
 export default function NoteEditor({ note, onUpdate, appTheme }: Props) {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
@@ -73,9 +88,38 @@ export default function NoteEditor({ note, onUpdate, appTheme }: Props) {
 
   const colorConfig = NOTE_COLORS.find(c => c.name === note.color) ?? NOTE_COLORS[0]
 
+  // ── Real-time collaboration ──────────────────────────────────────────────
+  // One Yjs doc + Hocuspocus provider per note. The parent remounts this
+  // component on note switch (key={note.id}), so these are created fresh per
+  // note and torn down on unmount. The note id is the collab "room".
+  const ydoc = useMemo(() => new Y.Doc(), [])
+  const provider = useMemo(() => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') ?? '' : ''
+    return new HocuspocusProvider({ url: COLLAB_URL, name: note.id, document: ydoc, token })
+  }, [ydoc, note.id])
+  useEffect(() => () => provider.destroy(), [provider])
+
+  // Live connection status for the footer badge.
+  const [collabStatus, setCollabStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting')
+  useEffect(() => {
+    const onStatus = ({ status }: { status: 'connecting' | 'connected' | 'disconnected' }) => setCollabStatus(status)
+    provider.on('status', onStatus)
+    return () => { provider.off('status', onStatus) }
+  }, [provider])
+
+  const me = useMemo(() => {
+    const name = typeof window !== 'undefined' ? localStorage.getItem('username') || 'You' : 'You'
+    return { name, color: userColor(name) }
+  }, [])
+
   const editor = useEditor({
+    // Yjs is the source of truth, so the editor must not render on the server.
+    immediatelyRender: false,
     extensions: [
-      StarterKit,
+      // Yjs owns undo/redo history — disable StarterKit's so they don't clash.
+      // StarterKit v3 also bundles Link + Underline; disable them here so the
+      // custom-configured standalone versions below don't duplicate.
+      StarterKit.configure({ undoRedo: false, link: false, underline: false }),
       Underline,
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
       Image.configure({ inline: false, allowBase64: true }),
@@ -88,25 +132,40 @@ export default function NoteEditor({ note, onUpdate, appTheme }: Props) {
       Link.configure({ openOnClick: false, HTMLAttributes: { class: 'text-indigo-400 underline cursor-pointer' } }),
       CharacterCount,
       EditorShortcuts,
+      Collaboration.configure({ document: ydoc }),
+      CollaborationCaret.configure({ provider, user: me }),
     ],
-    content: note.content,
+    // No `content` here — content comes from the shared Yjs doc (seeded below).
     editorProps: {
       attributes: {
         class: `focus:outline-none prose-editor min-h-[50vh] ${isDark ? 'prose-dark' : 'prose-light'}`,
       },
     },
+    // Snapshot to note-service on every change so the dashboard list, search,
+    // export and offline cache keep working off the JSON copy.
     onUpdate: ({ editor }) => {
       onUpdate({ content: editor.getJSON() })
     },
   })
 
-  // Sync content when note changes
+  // Seed the shared doc from the note's stored JSON the first time it's opened
+  // collaboratively. Only when the synced doc is still empty — otherwise the
+  // persisted Yjs state (and any concurrent peer edits) is authoritative.
+  const seeded = useRef(false)
   useEffect(() => {
-    if (editor && editor.getJSON() !== note.content) {
-      editor.commands.setContent(note.content, { emitUpdate: false })
+    if (!editor) return
+    const seed = () => {
+      if (seeded.current) return
+      seeded.current = true
+      if (editor.isEmpty && note.content) {
+        editor.commands.setContent(note.content, { emitUpdate: true })
+      }
     }
+    if (provider.isSynced) seed()
+    else provider.on('synced', seed)
+    return () => { provider.off('synced', seed) }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [note.id])
+  }, [editor, provider])
 
   // Drag-drop image onto editor
   async function handleDrop(e: React.DragEvent) {
@@ -273,10 +332,23 @@ export default function NoteEditor({ note, onUpdate, appTheme }: Props) {
           <button onClick={zoomIn} title="Zoom in" className={`px-2 py-0.5 rounded-r-lg transition ${isDark ? 'hover:bg-white/10 text-slate-400 hover:text-white' : 'hover:bg-slate-100 text-slate-500'}`}>+</button>
         </div>
 
-        <span className="flex items-center gap-1 text-emerald-500">
-          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
-          Saved
-        </span>
+        {/* Live collaboration status driven by the Hocuspocus provider. */}
+        {collabStatus === 'connected' ? (
+          <span className="flex items-center gap-1.5 text-emerald-500" title="Connected to real-time collaboration">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            Live
+          </span>
+        ) : collabStatus === 'connecting' ? (
+          <span className="flex items-center gap-1.5 text-amber-500" title="Connecting to collaboration server">
+            <span className="w-2 h-2 rounded-full bg-amber-500" />
+            Connecting…
+          </span>
+        ) : (
+          <span className="flex items-center gap-1.5 text-slate-500" title="Offline — changes sync when reconnected">
+            <span className="w-2 h-2 rounded-full bg-slate-500" />
+            Offline
+          </span>
+        )}
       </div>
     </div>
   )

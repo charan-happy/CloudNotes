@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import NoteEditor from './NoteEditor'
+import ShareModal from './ShareModal'
 import { NOTE_COLORS, RANDOM_ICONS, relativeTime, emptyContent, notePreview, downloadFile, notesKey, tagColor, type Note } from './types'
 import * as api from '../../lib/api'
 
@@ -50,6 +51,7 @@ export default function DashboardPage() {
   const [sidebarWidth, setSidebarWidth] = useState(260)
   const [appTheme, setAppTheme] = useState<'dark' | 'light'>('dark')
   const [syncError, setSyncError] = useState(false)
+  const [shareNoteId, setShareNoteId] = useState<string | null>(null)
   const widthRef = useRef(260)
 
   // Drag-to-resize the sidebar (clamped 200–480px, persisted).
@@ -413,6 +415,15 @@ export default function DashboardPage() {
               </span>
               <div className="flex items-center gap-1 ml-auto">
                 <button
+                  onClick={() => setShareNoteId(active.id)}
+                  title="Share this note"
+                  className="flex items-center gap-1.5 text-xs font-semibold text-white px-3 py-1.5 rounded-lg transition mr-1"
+                  style={{ background: 'linear-gradient(135deg,#8B5CF6,#EC4899)' }}
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
+                  Share
+                </button>
+                <button
                   onClick={() => updateNote(active.id, { pinned: !active.pinned })}
                   title={active.pinned ? 'Unpin' : 'Pin'}
                   className={`p-1.5 rounded-lg transition ${active.pinned ? 'text-indigo-400' : isDark ? 'text-slate-400 hover:text-white' : 'text-slate-400 hover:text-slate-500'}`}
@@ -451,6 +462,15 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
+
+      {shareNoteId && (
+        <ShareModal
+          noteId={shareNoteId}
+          noteTitle={notes.find(n => n.id === shareNoteId)?.title ?? ''}
+          isDark={isDark}
+          onClose={() => setShareNoteId(null)}
+        />
+      )}
     </div>
   )
 }

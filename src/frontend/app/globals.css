@@ -129,3 +129,27 @@ body {
 .ProseMirror table:hover .column-resize-handle { opacity: 0.35; }
 .ProseMirror .column-resize-handle:hover { opacity: 1; }
 .ProseMirror.resize-cursor { cursor: col-resize; }
+
+/* ── Collaboration carets (other users' live cursors) ─────────────────────── */
+.collaboration-carets__caret {
+  border-left: 1px solid #0d0d0d;
+  border-right: 1px solid #0d0d0d;
+  margin-left: -1px;
+  margin-right: -1px;
+  pointer-events: none;
+  position: relative;
+  word-break: normal;
+}
+.collaboration-carets__label {
+  border-radius: 3px 3px 3px 0;
+  color: #0d0d0d;
+  font-size: 11px;
+  font-weight: 600;
+  left: -1px;
+  line-height: normal;
+  padding: 0.1rem 0.3rem;
+  position: absolute;
+  top: -1.4em;
+  user-select: none;
+  white-space: nowrap;
+}

@@ -13,8 +13,9 @@ import (
 
 // Handler carries dependencies shared by every route.
 type Handler struct {
-	pool    *pgxpool.Pool
-	timeout time.Duration
+	pool      *pgxpool.Pool
+	timeout   time.Duration
+	jwtSecret string // used for optional auth on public share endpoints
 }
 
 func (h *Handler) ctx(c *gin.Context) (context.Context, context.CancelFunc) {

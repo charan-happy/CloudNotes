@@ -38,6 +38,33 @@ CREATE TABLE IF NOT EXISTS notes (
 CREATE INDEX IF NOT EXISTS idx_notes_user_updated ON notes (user_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_notes_user_pinned  ON notes (user_id, pinned);
 
+-- ── note_shares (owned by note-service; consumed by collab-service) ──────────
+-- One row per share link. shared_with_user_id NULL = public link.
+CREATE TABLE IF NOT EXISTS note_shares (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    note_id             UUID         NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+    owner_id            UUID         NOT NULL,
+    token               TEXT         NOT NULL UNIQUE,
+    permission          VARCHAR(8)   NOT NULL DEFAULT 'view',
+    shared_with_user_id UUID,
+    password_hash       TEXT,
+    expires_at          TIMESTAMPTZ,
+    created_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_shares_token ON note_shares (token);
+CREATE INDEX IF NOT EXISTS idx_shares_note  ON note_shares (note_id);
+CREATE INDEX IF NOT EXISTS idx_shares_with  ON note_shares (shared_with_user_id);
+
+-- ── note_collab (owned by collab-service) ───────────────────────────────────
+-- Persisted Yjs CRDT state per note, so edits survive restarts and late joiners
+-- get full history. collab-service also creates this on boot (safety net).
+CREATE TABLE IF NOT EXISTS note_collab (
+    note_id    UUID PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE,
+    state      BYTEA       NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- ── analytics_events (owned by analytics-service) ───────────────────────────
 CREATE TABLE IF NOT EXISTS analytics_events (
     id         BIGSERIAL PRIMARY KEY,
