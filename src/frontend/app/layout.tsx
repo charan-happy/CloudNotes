@@ -28,14 +28,16 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
+    // suppressHydrationWarning on <html> and <body>: browser extensions
+    // (Dark Reader, Google Translate, Grammarly, ColorZilla, …) inject
+    // attributes onto these root elements before React hydrates. It only
+    // suppresses each root element's OWN attribute mismatch (one level deep) —
+    // it does NOT mask mismatches in the component tree below them.
     <html
       lang="en"
+      suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      {/* suppressHydrationWarning: browser extensions (Grammarly, ColorZilla, …)
-          inject attributes onto <body> before React hydrates. This suppresses
-          only <body>'s own attribute mismatch — it does NOT mask mismatches in
-          the component tree below it. */}
       <body suppressHydrationWarning className="min-h-full flex flex-col">{children}</body>
     </html>
   );

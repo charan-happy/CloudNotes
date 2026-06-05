@@ -58,7 +58,6 @@ So instead of reading about microservices, we **built five of them across four l
 ### 🧠 Notes that think & flex
 - **✨ AI assist** — improve, rephrase, fix grammar, summarize, change tone
 - **⚡ Real-time co-editing** — multiple people, one note, **live cursors** + instant sync (Yjs CRDT, conflict-free)
-- **🤝 Share & invite** — by link, username, or **email** · invite people who aren't members yet (they sign up, land right back on the note, and collaborate live)
 - **Tags** (Personal · Work · Ideas…) with color + instant filtering
 - **Dark / light** mode — app-wide _and_ per-note
 - **Zoom** the page, **resize** the sidebar, **adjust** the header
@@ -76,19 +75,19 @@ So instead of reading about microservices, we **built five of them across four l
 > _"Prefer boring infrastructure over clever code."_
 
 ```
-                             🌐  Browser
-                             │  REST (HTTP)  +  live editing (WebSocket)
-                ┌────────────▼────────────┐
-                │   Next.js 16   ·   :3000 │  Editor · AI · Tags · co-editing
-                └────────────┬────────────┘
-     ┌───────────┬───────────┼───────────┬────────────┐
-     │           │           │           │            │
+                              🌐  Browser
+                                  │  REST (HTTP)  +  live editing (WebSocket)
+                       ┌──────────▼────────────┐
+                       │   Next.js 16  ·  :3000  │  Editor · AI · Tags · co-editing
+                       └──────────┬────────────┘
+     ┌───────────┬───────────┬────┴──────┬────────────┬────────────┐
+     │           │           │           │            │            │
 ┌────▼────┐ ┌────▼────┐ ┌────▼────┐ ┌────▼─────┐ ┌────▼─────┐
 │  Auth   │ │  Notes  │ │  Users  │ │Analytics │ │  Collab  │
 │ 🐍 Py   │ │ 🐹 Go   │ │ ☕ Java │ │ 🟢 Node  │ │ 🟢 Node  │
 │ FastAPI │ │  Gin    │ │ Spring  │ │ Express  │ │Hocuspocus│
 │  :8000  │ │  :8001  │ │  :8002  │ │  :8003   │ │ :8004 ⇄  │
-│JWT+bcrypt│ │JWT-scope│ │JPA+Hika │ │event ing │ │ Yjs CRDT │
+│JWT+bcrypt│ │JWT-scope│ │JPA+Hikari│ │event ing│ │ Yjs CRDT │
 └────┬────┘ └────┬────┘ └────┬────┘ └────┬─────┘ └────┬─────┘
      └───────────┴───────────┴─────┬─────┴────────────┘
                                    │
@@ -154,14 +153,9 @@ cd src/user-service && ./mvnw spring-boot:run
 # 🟢 Analytics
 cd src/analytics-service && npm install && node index.js
 
-# ⚡ Collab (real-time editing — needs the same DATABASE_URL + JWT_SECRET)
-cd src/collab-service && npm install && node index.js   # listens on :8004
-
 # ⚛️ Frontend
 cd src/frontend && npm install && npm run dev
 ```
-
-> 🔌 The frontend reaches the collab server via `NEXT_PUBLIC_COLLAB_URL` (default `ws://localhost:8004`). It's a **browser-side** WebSocket, so in Docker it must point at the host, not the compose network name.
 
 > 💡 **Heads up:** `JWT_SECRET` must be **≥ 32 characters** — it's shared across services and HS256 demands it. Generate one with `openssl rand -base64 48`.
 
@@ -237,14 +231,14 @@ terraform/    VPC · EKS · RDS · Secrets Manager · multi-env (dev / staging /
 
 ## 🗺️ Roadmap
 
-- [x] 5 microservices on PostgreSQL with JWT + connection pooling
+- [x] 4 microservices on PostgreSQL with JWT + connection pooling
 - [x] Rich editor: tables, media, diagrams, AI assist, tags, import/export
 - [x] Structured logging + Prometheus metrics on every service
-- [x] ⚡ Real-time collaborative editing (Yjs CRDT · live cursors · Postgres-persisted)
 - [ ] 📈 OpenTelemetry → Jaeger distributed tracing
 - [ ] 🔄 CI/CD green end-to-end (GitHub Actions → ArgoCD)
 - [ ] ☸️ First real `kubectl apply` to a cluster
 - [ ] 🌍 `terraform apply` to real cloud
+- [ ] ⚡ Real-time collaborative editing
 - [ ] 🪣 S3/GCS for large attachments
 - [ ] 📊 Analytics dashboard in the UI
 
