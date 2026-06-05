@@ -142,6 +142,86 @@ export async function deleteNote(id: string): Promise<void> {
   }, 'notes')
 }
 
+// ── sharing ───────────────────────────────────────────────────────────────────
+export interface Share {
+  id: string
+  note_id: string
+  token: string
+  permission: 'view' | 'edit'
+  shared_with_user_id?: string | null
+  has_password: boolean
+  expires_at?: string | null
+  created_at: string
+}
+
+export interface CreateShareInput {
+  permission: 'view' | 'edit'
+  shared_with_username?: string
+  password?: string
+  expires_in_days?: number
+}
+
+export async function createShare(noteId: string, input: CreateShareInput): Promise<Share> {
+  return request(`${NOTES}/v1/notes/${noteId}/share`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify(input),
+  }, 'notes')
+}
+
+export async function listShares(noteId: string): Promise<Share[]> {
+  const data = await request(`${NOTES}/v1/notes/${noteId}/shares`, { headers: authHeaders() }, 'notes')
+  return data.shares ?? []
+}
+
+export async function revokeShare(noteId: string, shareId: string): Promise<void> {
+  await request(`${NOTES}/v1/notes/${noteId}/shares/${shareId}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  }, 'notes')
+}
+
+export interface SharedNoteResult {
+  note: ApiNote
+  permission: 'view' | 'edit'
+  owner_id: string
+}
+
+// Open a shared note via its public token. Sends the JWT if signed in
+// (needed for person-specific shares) and the password if one is set.
+export async function getSharedNote(token: string, password?: string): Promise<SharedNoteResult> {
+  const headers: Record<string, string> = {}
+  const jwt = getToken()
+  if (jwt) headers.Authorization = `Bearer ${jwt}`
+  if (password) headers['X-Share-Password'] = password
+  const res = await fetch(`${NOTES}/v1/shared/${token}`, { headers })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    const err = new ApiError(data.error || 'Could not open this note', res.status)
+    ;(err as ApiError & { needsPassword?: boolean }).needsPassword = !!data.needs_password
+    throw err
+  }
+  return data
+}
+
+export async function updateSharedNote(token: string, patch: Partial<ApiNote>, password?: string): Promise<ApiNote> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  const jwt = getToken()
+  if (jwt) headers.Authorization = `Bearer ${jwt}`
+  if (password) headers['X-Share-Password'] = password
+  const res = await fetch(`${NOTES}/v1/shared/${token}`, { method: 'PUT', headers, body: JSON.stringify(patch) })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new ApiError(data.error || 'Could not save', res.status)
+  return data
+}
+
+export interface SharedWithMe { token: string; permission: 'view' | 'edit'; note: ApiNote }
+
+export async function listSharedWithMe(): Promise<SharedWithMe[]> {
+  const data = await request(`${NOTES}/v1/shared-with-me`, { headers: authHeaders() }, 'notes')
+  return data.shared ?? []
+}
+
 // ── analytics (fire-and-forget) ───────────────────────────────────────────────
 export function track(eventType: string, payload: Record<string, unknown> = {}) {
   const userId = typeof window !== 'undefined' ? localStorage.getItem('user_id') : null
