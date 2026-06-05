@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -65,15 +66,20 @@ func (h *Handler) createShare(c *gin.Context) {
 		req.Permission = "view"
 	}
 
-	// Resolve a target user, if sharing with a specific person.
+	// Resolve a target user, if sharing with a specific person — by username OR email.
 	var sharedWith *string
 	if req.SharedWithUsername != nil && *req.SharedWithUsername != "" {
+		who := strings.TrimSpace(*req.SharedWithUsername)
+		col := "username"
+		if strings.Contains(who, "@") {
+			col = "email"
+		}
 		var uid string
 		err := h.pool.QueryRow(ctx,
-			`SELECT id::text FROM users WHERE LOWER(username) = LOWER($1)`, *req.SharedWithUsername,
+			`SELECT id::text FROM users WHERE LOWER(`+col+`) = LOWER($1)`, who,
 		).Scan(&uid)
 		if errors.Is(err, pgx.ErrNoRows) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "user '" + *req.SharedWithUsername + "' not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "No CloudNotes user found with that username or email."})
 			return
 		}
 		if err != nil {

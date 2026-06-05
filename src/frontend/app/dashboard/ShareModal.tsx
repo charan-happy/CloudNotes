@@ -93,7 +93,7 @@ export default function ShareModal({ noteId, noteTitle, isDark, onClose }: {
 
           {/* Optional fields */}
           <div className="space-y-2.5">
-            <input value={username} onChange={e => setUsername(e.target.value)} placeholder="Share with a specific username (optional)"
+            <input value={username} onChange={e => setUsername(e.target.value)} placeholder="Share with a username or email (optional)"
               className="w-full rounded-xl px-3 py-2.5 text-sm focus:outline-none border" style={{ background: field, color: text, borderColor: border }} />
             <div className="flex gap-2">
               <input value={password} onChange={e => setPassword(e.target.value)} type="text" placeholder="Password (optional)"
@@ -107,7 +107,7 @@ export default function ShareModal({ noteId, noteTitle, isDark, onClose }: {
               </select>
             </div>
             <p className="text-[11px]" style={{ color: muted }}>
-              Leave username empty for a link <b>anyone</b> can open. Add a username to restrict it to one signed-in person.
+              Leave username empty for a link <b>anyone</b> can open. Add a username or email to restrict it to one signed-in person.
             </p>
           </div>
 
