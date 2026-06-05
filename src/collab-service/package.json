@@ -1,0 +1,22 @@
+{
+  "name": "collab-service",
+  "version": "1.0.0",
+  "description": "CloudNotes real-time collaboration server — Hocuspocus + Yjs over WebSocket",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node test/sync.test.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@hocuspocus/server": "^2.15.2",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.13.1",
+    "yjs": "^13.6.20"
+  },
+  "devDependencies": {
+    "@hocuspocus/provider": "^2.15.2",
+    "ws": "^8.18.0"
+  }
+}
