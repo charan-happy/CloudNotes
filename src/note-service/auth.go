@@ -52,3 +52,28 @@ func currentUser(c *gin.Context) string {
 	s, _ := v.(string)
 	return s
 }
+
+// optionalUser returns the authenticated user id if a valid Bearer token is
+// present, or "" otherwise. Used by public share endpoints that behave
+// differently for logged-in recipients vs anonymous link visitors.
+func optionalUser(c *gin.Context, secret string) string {
+	header := c.GetHeader("Authorization")
+	if !strings.HasPrefix(header, "Bearer ") {
+		return ""
+	}
+	token, err := jwt.Parse(strings.TrimPrefix(header, "Bearer "), func(t *jwt.Token) (interface{}, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, jwt.ErrSignatureInvalid
+		}
+		return []byte(secret), nil
+	})
+	if err != nil || !token.Valid {
+		return ""
+	}
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return ""
+	}
+	sub, _ := claims["sub"].(string)
+	return sub
+}

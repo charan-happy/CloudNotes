@@ -32,7 +32,7 @@ func main() {
 	}
 	defer pool.Close()
 
-	h := &Handler{pool: pool, timeout: cfg.RequestTimeout}
+	h := &Handler{pool: pool, timeout: cfg.RequestTimeout, jwtSecret: cfg.JWTSecret}
 
 	if os.Getenv("GIN_MODE") == "" {
 		gin.SetMode(gin.ReleaseMode)
@@ -55,6 +55,21 @@ func main() {
 		notes.GET("/:id", h.getNote)
 		notes.PUT("/:id", h.updateNote)
 		notes.DELETE("/:id", h.deleteNote)
+
+		// Sharing (owner-only)
+		notes.POST("/:id/share", h.createShare)
+		notes.GET("/:id/shares", h.listShares)
+		notes.DELETE("/:id/shares/:shareId", h.revokeShare)
+	}
+
+	// Notes shared with the authenticated user.
+	r.GET("/v1/shared-with-me", authMiddleware(cfg.JWTSecret), h.sharedWithMe)
+
+	// Public share access (optional auth handled inside the handlers).
+	shared := r.Group("/v1/shared")
+	{
+		shared.GET("/:token", h.getSharedNote)
+		shared.PUT("/:token", h.updateSharedNote)
 	}
 
 	srv := &http.Server{
