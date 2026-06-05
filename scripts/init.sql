@@ -1,38 +1,52 @@
 -- CloudNotes database schema
--- Runs automatically when the postgres container first starts
+-- Runs automatically on first PostgreSQL container start (docker-entrypoint-initdb.d).
+-- Idempotent: safe to re-run. Each service also verifies/creates its tables on boot.
 
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";   -- gen_random_uuid()
+
+-- ── users (owned by auth-service & user-service) ────────────────────────────
 CREATE TABLE IF NOT EXISTS users (
-    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    username     VARCHAR(30)  NOT NULL UNIQUE,
-    email        VARCHAR(255) NOT NULL UNIQUE,
-    display_name VARCHAR(100),
-    password     TEXT         NOT NULL,
-    created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-    updated_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    username      VARCHAR(30)  NOT NULL UNIQUE,
+    email         VARCHAR(255) NOT NULL UNIQUE,
+    display_name  VARCHAR(100),
+    password_hash TEXT         NOT NULL,
+    created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
+CREATE INDEX IF NOT EXISTS idx_users_username ON users (LOWER(username));
+CREATE INDEX IF NOT EXISTS idx_users_email    ON users (LOWER(email));
+
+-- ── notes (owned by note-service) ───────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS notes (
     id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id    UUID         NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    title      TEXT         NOT NULL,
-    content    JSONB        NOT NULL DEFAULT '{}',
+    user_id    UUID         NOT NULL,
+    title      TEXT         NOT NULL DEFAULT '',
+    content    JSONB        NOT NULL DEFAULT '{}'::jsonb,
     tags       TEXT[]       NOT NULL DEFAULT '{}',
-    icon       VARCHAR(10)  NOT NULL DEFAULT '📝',
+    icon       VARCHAR(16)  NOT NULL DEFAULT '📝',
     color      VARCHAR(20)  NOT NULL DEFAULT 'indigo',
+    cover      TEXT,
+    note_theme VARCHAR(10)  NOT NULL DEFAULT 'inherit',
     pinned     BOOLEAN      NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
+-- Composite index: the hot query is "all notes for a user, newest first".
+CREATE INDEX IF NOT EXISTS idx_notes_user_updated ON notes (user_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notes_user_pinned  ON notes (user_id, pinned);
+
+-- ── analytics_events (owned by analytics-service) ───────────────────────────
 CREATE TABLE IF NOT EXISTS analytics_events (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    event_type  VARCHAR(100) NOT NULL,
-    user_id     VARCHAR(255),
-    payload     JSONB        NOT NULL DEFAULT '{}',
-    created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    id         BIGSERIAL PRIMARY KEY,
+    event_type VARCHAR(100) NOT NULL,
+    user_id    VARCHAR(255),
+    payload    JSONB        NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_notes_user_id       ON notes (user_id);
-CREATE INDEX IF NOT EXISTS idx_notes_updated_at    ON notes (updated_at DESC);
-CREATE INDEX IF NOT EXISTS idx_analytics_event_type ON analytics_events (event_type);
-CREATE INDEX IF NOT EXISTS idx_analytics_created_at ON analytics_events (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_analytics_type_time ON analytics_events (event_type, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_analytics_user      ON analytics_events (user_id);
+CREATE INDEX IF NOT EXISTS idx_analytics_created   ON analytics_events (created_at DESC);

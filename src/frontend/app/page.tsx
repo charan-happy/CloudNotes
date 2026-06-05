@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useState } from 'react'
 import TypingDemo from './components/TypingDemo'
+import RotatingTagline from './components/RotatingTagline'
 
 const AURORA = 'linear-gradient(135deg, #8B5CF6 0%, #EC4899 50%, #F97316 100%)'
 const AT = { background: AURORA, WebkitBackgroundClip: 'text' as const, WebkitTextFillColor: 'transparent' as const, backgroundClip: 'text' as const }
@@ -198,7 +199,8 @@ export default function LandingPage() {
 
   const bg    = isDark ? '#07050A' : '#FAFAF9'
   const text  = isDark ? '#F1F0F0' : '#1a1a1a'
-  const muted = isDark ? '#4B5563' : '#9CA3AF'
+  const muted = isDark ? '#9CA3AF' : '#6B7280'   // readable secondary text in both modes
+  const nav   = isDark ? '#E5E7EB' : '#374151'   // higher-contrast interactive text
   const surf  = isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)'
   const bdr   = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'
 
@@ -221,7 +223,7 @@ export default function LandingPage() {
               : <svg className="w-4 h-4" style={{ color: muted }} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>
             }
           </button>
-          <Link href="/login" className="text-sm px-4 py-2 rounded-xl transition" style={{ color: muted }}>Sign in</Link>
+          <Link href="/login" className="text-sm font-semibold px-4 py-2 rounded-xl transition hover:opacity-80" style={{ color: nav }}>Sign in</Link>
           <Link href="/register" className="text-sm font-bold px-5 py-2.5 rounded-xl text-white" style={{ background: AURORA, boxShadow: isDark ? '0 0 24px rgba(139,92,246,0.3)' : 'none' }}>
             Get started →
           </Link>
@@ -245,15 +247,17 @@ export default function LandingPage() {
               OWN IT.
             </h1>
 
-            <p className="text-base leading-relaxed mb-8 max-w-sm" style={{ color: muted }}>
+            <p className="text-base leading-relaxed mb-4 max-w-sm" style={{ color: muted }}>
               A cloud-native note-taking platform. Rich text, diagrams, images, videos, code — backed by Python, Go, Java, and Node.js microservices on Kubernetes.
             </p>
+
+            <div className="mb-8"><RotatingTagline color={muted} /></div>
 
             <div className="flex gap-3 flex-wrap">
               <Link href="/register" className="font-bold px-7 py-3.5 rounded-2xl text-white text-sm" style={{ background: AURORA, boxShadow: isDark ? '0 0 40px rgba(139,92,246,0.35)' : '0 4px 20px rgba(139,92,246,0.2)' }}>
                 Start writing free →
               </Link>
-              <Link href="/login" className="font-semibold px-7 py-3.5 rounded-2xl text-sm border" style={{ color: muted, borderColor: bdr, background: surf }}>
+              <Link href="/login" className="font-semibold px-7 py-3.5 rounded-2xl text-sm border" style={{ color: nav, borderColor: bdr, background: surf }}>
                 Sign in
               </Link>
             </div>

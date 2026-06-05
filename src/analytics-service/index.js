@@ -1,132 +1,210 @@
 'use strict'
 
 const express = require('express')
-const cors    = require('cors')
-const client  = require('prom-client')
+const cors = require('cors')
+const client = require('prom-client')
+
+const { pool, connectWithRetry, ping } = require('./db')
+const log = require('./logger')
 
 const app = express()
 const START_TIME = Date.now()
+const PORT = process.env.PORT || 8003
 
-app.use(cors())
-app.use(express.json())
+app.use(cors({ origin: (process.env.CORS_ORIGINS || 'http://localhost:3000').split(',') }))
+app.use(express.json({ limit: '256kb' }))
 
 // ── Prometheus metrics ──────────────────────────────────────────────────────
 const register = new client.Registry()
 client.collectDefaultMetrics({ register })
 
-const eventCounter = new client.Counter({
-  name:       'analytics_events_total',
-  help:       'Total analytics events received',
-  labelNames: ['event_type'],
-  registers:  [register],
+const httpRequests = new client.Counter({
+  name: 'http_requests_total',
+  help: 'Total HTTP requests by method, route and status.',
+  labelNames: ['method', 'route', 'status'],
+  registers: [register],
 })
-
-const activeUsersGauge = new client.Gauge({
-  name:      'analytics_active_users',
-  help:      'Approximated number of active users (last 5 min)',
+const httpDuration = new client.Histogram({
+  name: 'http_request_duration_seconds',
+  help: 'HTTP request latency in seconds.',
+  labelNames: ['method', 'route'],
   registers: [register],
 })
 
-// ── In-memory event store ───────────────────────────────────────────────────
-const events = []    // { id, event_type, user_id, payload, timestamp }
-const sessions = {}  // user_id → last_seen timestamp
-
-function genId () {
-  return `evt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
-}
-
-function refreshActiveUsers () {
-  const cutoff = Date.now() - 5 * 60 * 1000
-  const active = Object.values(sessions).filter(t => t > cutoff).length
-  activeUsersGauge.set(active)
-}
+// Metrics + structured access log middleware.
+app.use((req, res, next) => {
+  const end = httpDuration.startTimer()
+  res.on('finish', () => {
+    const route = req.route ? req.baseUrl + req.route.path : req.path
+    end({ method: req.method, route })
+    httpRequests.inc({ method: req.method, route, status: res.statusCode })
+    log.info('request', {
+      method: req.method,
+      route,
+      status: res.statusCode,
+    })
+  })
+  next()
+})
 
 // ── Routes ──────────────────────────────────────────────────────────────────
-
 app.get('/', (_req, res) => {
   res.json({ status: 'Analytics Service is running!' })
 })
 
-app.get('/v1/health-status', (_req, res) => {
-  refreshActiveUsers()
-  res.json({
-    service:       'analytics-service',
-    version:       '1.0.0',
-    status:        'healthy',
-    language:      'Node.js',
-    framework:     'Express',
-    event_count:   events.length,
-    active_users:  Object.values(sessions).filter(t => t > Date.now() - 300_000).length,
+app.get('/v1/health-status', async (_req, res) => {
+  const dbOk = await ping()
+  let eventCount = 0
+  let activeUsers = 0
+  if (dbOk) {
+    try {
+      const counts = await pool.query(`
+        SELECT
+          (SELECT COUNT(*) FROM analytics_events)                                        AS events,
+          (SELECT COUNT(DISTINCT user_id) FROM analytics_events
+             WHERE created_at > NOW() - INTERVAL '5 minutes' AND user_id IS NOT NULL)    AS active
+      `)
+      eventCount = parseInt(counts.rows[0].events, 10)
+      activeUsers = parseInt(counts.rows[0].active, 10)
+    } catch (err) {
+      log.error('health query failed', { error: err.message })
+    }
+  }
+  res.status(dbOk ? 200 : 503).json({
+    service: 'analytics-service',
+    version: '1.0.0',
+    status: dbOk ? 'healthy' : 'degraded',
+    language: 'Node.js',
+    framework: 'Express',
+    database: dbOk ? 'connected' : 'unreachable',
     uptime_seconds: Math.round((Date.now() - START_TIME) / 1000),
+    event_count: eventCount,
+    active_users: activeUsers,
     endpoints: [
-      { method: 'POST', path: '/v1/events',         description: 'Track an event' },
-      { method: 'GET',  path: '/v1/events',          description: 'List events (with filter)' },
-      { method: 'GET',  path: '/v1/stats',           description: 'Aggregated stats' },
-      { method: 'GET',  path: '/v1/stats/top-events',description: 'Top event types' },
-      { method: 'GET',  path: '/metrics',            description: 'Prometheus metrics' },
+      { method: 'POST', path: '/v1/events', description: 'Track an event' },
+      { method: 'GET', path: '/v1/events', description: 'List events (filterable)' },
+      { method: 'GET', path: '/v1/stats', description: 'Aggregated stats' },
+      { method: 'GET', path: '/v1/stats/top-events', description: 'Top event types' },
+      { method: 'GET', path: '/metrics', description: 'Prometheus metrics' },
     ],
   })
 })
 
-// Track an event
-app.post('/v1/events', (req, res) => {
-  const { event_type, user_id, payload } = req.body
-  if (!event_type) return res.status(400).json({ error: 'event_type is required' })
-
-  const evt = { id: genId(), event_type, user_id: user_id || 'anonymous', payload: payload || {}, timestamp: new Date().toISOString() }
-  events.push(evt)
-  eventCounter.inc({ event_type })
-
-  if (user_id) sessions[user_id] = Date.now()
-
-  res.status(201).json(evt)
+app.post('/v1/events', async (req, res) => {
+  const { event_type, user_id, payload } = req.body || {}
+  if (!event_type || typeof event_type !== 'string') {
+    return res.status(400).json({ error: 'event_type is required' })
+  }
+  try {
+    const result = await pool.query(
+      `INSERT INTO analytics_events (event_type, user_id, payload)
+       VALUES ($1, $2, $3)
+       RETURNING id, event_type, user_id, payload, created_at`,
+      [event_type, user_id || null, payload || {}]
+    )
+    res.status(201).json(result.rows[0])
+  } catch (err) {
+    log.error('insert event failed', { error: err.message })
+    res.status(500).json({ error: 'failed to record event' })
+  }
 })
 
-// List events with optional filter
-app.get('/v1/events', (req, res) => {
-  const { event_type, user_id, limit = 100 } = req.query
-  let result = [...events]
-  if (event_type) result = result.filter(e => e.event_type === event_type)
-  if (user_id)    result = result.filter(e => e.user_id    === user_id)
-  result = result.slice(-Number(limit)).reverse()
-  res.json({ events: result, count: result.length })
+app.get('/v1/events', async (req, res) => {
+  const { event_type, user_id } = req.query
+  const limit = Math.min(parseInt(req.query.limit || '100', 10) || 100, 1000)
+
+  const where = []
+  const params = []
+  if (event_type) { params.push(event_type); where.push(`event_type = $${params.length}`) }
+  if (user_id) { params.push(user_id); where.push(`user_id = $${params.length}`) }
+  params.push(limit)
+
+  const sql = `
+    SELECT id, event_type, user_id, payload, created_at
+    FROM analytics_events
+    ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+    ORDER BY created_at DESC
+    LIMIT $${params.length}`
+
+  try {
+    const result = await pool.query(sql, params)
+    res.json({ events: result.rows, count: result.rowCount })
+  } catch (err) {
+    log.error('list events failed', { error: err.message })
+    res.status(500).json({ error: 'failed to list events' })
+  }
 })
 
-// Aggregated stats
-app.get('/v1/stats', (req, res) => {
-  refreshActiveUsers()
-  const byType = {}
-  events.forEach(e => { byType[e.event_type] = (byType[e.event_type] || 0) + 1 })
-
-  const uniqueUsers = new Set(events.map(e => e.user_id)).size
-  const last24h = events.filter(e => Date.parse(e.timestamp) > Date.now() - 86_400_000).length
-
-  res.json({
-    total_events:  events.length,
-    unique_users:  uniqueUsers,
-    events_last_24h: last24h,
-    active_users:  Object.values(sessions).filter(t => t > Date.now() - 300_000).length,
-    by_event_type: byType,
-  })
+app.get('/v1/stats', async (_req, res) => {
+  try {
+    const [totals, byType] = await Promise.all([
+      pool.query(`
+        SELECT
+          (SELECT COUNT(*) FROM analytics_events)                                       AS total_events,
+          (SELECT COUNT(DISTINCT user_id) FROM analytics_events WHERE user_id IS NOT NULL) AS unique_users,
+          (SELECT COUNT(*) FROM analytics_events WHERE created_at > NOW() - INTERVAL '24 hours') AS events_last_24h,
+          (SELECT COUNT(DISTINCT user_id) FROM analytics_events
+             WHERE created_at > NOW() - INTERVAL '5 minutes' AND user_id IS NOT NULL)    AS active_users
+      `),
+      pool.query(`SELECT event_type, COUNT(*)::int AS count FROM analytics_events GROUP BY event_type`),
+    ])
+    const t = totals.rows[0]
+    const by_event_type = {}
+    byType.rows.forEach((r) => { by_event_type[r.event_type] = r.count })
+    res.json({
+      total_events: parseInt(t.total_events, 10),
+      unique_users: parseInt(t.unique_users, 10),
+      events_last_24h: parseInt(t.events_last_24h, 10),
+      active_users: parseInt(t.active_users, 10),
+      by_event_type,
+    })
+  } catch (err) {
+    log.error('stats failed', { error: err.message })
+    res.status(500).json({ error: 'failed to compute stats' })
+  }
 })
 
-// Top event types ranked
-app.get('/v1/stats/top-events', (_req, res) => {
-  const counts = {}
-  events.forEach(e => { counts[e.event_type] = (counts[e.event_type] || 0) + 1 })
-  const ranked = Object.entries(counts)
-    .map(([type, count]) => ({ event_type: type, count }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 10)
-  res.json({ top_events: ranked })
+app.get('/v1/stats/top-events', async (_req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT event_type, COUNT(*)::int AS count
+      FROM analytics_events
+      GROUP BY event_type
+      ORDER BY count DESC
+      LIMIT 10`)
+    res.json({ top_events: result.rows })
+  } catch (err) {
+    log.error('top-events failed', { error: err.message })
+    res.status(500).json({ error: 'failed to compute top events' })
+  }
 })
 
-// Prometheus scrape endpoint
 app.get('/metrics', async (_req, res) => {
   res.set('Content-Type', register.contentType)
   res.end(await register.metrics())
 })
 
-// ── Start ────────────────────────────────────────────────────────────────────
-const PORT = process.env.PORT || 8003
-app.listen(PORT, () => console.log(`Analytics service running on :${PORT}`))
+// ── Startup + graceful shutdown ──────────────────────────────────────────────
+let server
+async function start() {
+  await connectWithRetry()
+  server = app.listen(PORT, () => log.info('analytics-service listening', { port: PORT }))
+}
+
+async function shutdown(signal) {
+  log.info('shutdown signal received', { signal })
+  if (server) {
+    await new Promise((resolve) => server.close(resolve))
+  }
+  await pool.end()
+  log.info('stopped cleanly')
+  process.exit(0)
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'))
+process.on('SIGINT', () => shutdown('SIGINT'))
+
+start().catch((err) => {
+  log.error('startup failed', { error: err.message })
+  process.exit(1)
+})
