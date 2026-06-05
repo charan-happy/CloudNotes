@@ -1,51 +1,66 @@
 package com.cloudnotes.userservice.service;
 
+import com.cloudnotes.userservice.dto.UpdateUserRequest;
 import com.cloudnotes.userservice.model.User;
+import com.cloudnotes.userservice.repository.UserRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
-// In-memory store — replace with Spring Data JPA + PostgreSQL (see README)
 @Service
 public class UserService {
 
-    private final Map<String, User> store = new ConcurrentHashMap<>();
+    private final UserRepository repo;
 
+    public UserService(UserRepository repo) {
+        this.repo = repo;
+    }
+
+    @Transactional(readOnly = true)
     public List<User> findAll() {
-        return new ArrayList<>(store.values());
+        return repo.findAll();
     }
 
-    public Optional<User> findById(String id) {
-        return Optional.ofNullable(store.get(id));
+    @Transactional(readOnly = true)
+    public Optional<User> findById(UUID id) {
+        return repo.findById(id);
     }
 
+    @Transactional(readOnly = true)
     public Optional<User> findByUsername(String username) {
-        return store.values().stream()
-                .filter(u -> u.getUsername().equalsIgnoreCase(username))
-                .findFirst();
+        return repo.findByUsernameIgnoreCase(username);
     }
 
-    public User create(User user) {
-        store.put(user.getId(), user);
-        return user;
-    }
-
-    public Optional<User> update(String id, User patch) {
-        return findById(id).map(existing -> {
-            if (patch.getDisplayName() != null) existing.setDisplayName(patch.getDisplayName());
-            if (patch.getEmail()       != null) existing.setEmail(patch.getEmail());
-            existing.setUpdatedAt(Instant.now());
-            return existing;
+    @Transactional
+    public Optional<User> update(UUID id, UpdateUserRequest req) {
+        return repo.findById(id).map(user -> {
+            if (req.getDisplayName() != null) {
+                user.setDisplayName(req.getDisplayName());
+            }
+            if (req.getEmail() != null && !req.getEmail().equalsIgnoreCase(user.getEmail())) {
+                if (repo.existsByEmailIgnoreCase(req.getEmail())) {
+                    throw new IllegalStateException("Email already in use");
+                }
+                user.setEmail(req.getEmail());
+            }
+            return repo.save(user);
         });
     }
 
-    public boolean delete(String id) {
-        return store.remove(id) != null;
+    @Transactional
+    public boolean delete(UUID id) {
+        if (!repo.existsById(id)) {
+            return false;
+        }
+        repo.deleteById(id);
+        return true;
     }
 
-    public int count() {
-        return store.size();
+    @Transactional(readOnly = true)
+    public long count() {
+        return repo.count();
     }
 }

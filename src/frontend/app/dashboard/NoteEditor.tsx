@@ -17,6 +17,8 @@ import CharacterCount from '@tiptap/extension-character-count'
 
 import Toolbar from './Toolbar'
 import { NOTE_COLORS, EMOJIS, type Note, downloadFile } from './types'
+import TagEditor from './TagEditor'
+import { EditorShortcuts } from './editorExtensions'
 import TurndownService from 'turndown'
 
 interface Props {
@@ -34,6 +36,37 @@ async function fileToBase64(file: File): Promise<string> {
 export default function NoteEditor({ note, onUpdate, appTheme }: Props) {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [showColorPicker, setShowColorPicker] = useState(false)
+  const [zoom, setZoom] = useState(1)
+  const zoomIn = () => setZoom(z => Math.min(2, +(z + 0.1).toFixed(2)))
+  const zoomOut = () => setZoom(z => Math.max(0.6, +(z - 0.1).toFixed(2)))
+
+  // Adjustable header (cover) height — drag the bottom edge. Persisted app-wide.
+  const [coverHeight, setCoverHeight] = useState(120)
+  const coverRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const saved = parseInt(localStorage.getItem('cloudnotes_cover_h') || '')
+    if (saved) setCoverHeight(Math.min(360, Math.max(40, saved)))
+  }, [])
+  function startCoverResize(e: React.MouseEvent) {
+    e.preventDefault()
+    document.body.style.cursor = 'ns-resize'
+    document.body.style.userSelect = 'none'
+    const top = coverRef.current?.getBoundingClientRect().top ?? 0
+    let latest = coverHeight
+    const onMove = (ev: MouseEvent) => {
+      latest = Math.min(360, Math.max(40, ev.clientY - top))
+      setCoverHeight(latest)
+    }
+    const onUp = () => {
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      localStorage.setItem('cloudnotes_cover_h', String(Math.round(latest)))
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
   const noteTheme = note.noteTheme ?? 'inherit'
   const effectiveTheme = noteTheme === 'inherit' ? appTheme : noteTheme
   const isDark = effectiveTheme === 'dark'
@@ -54,6 +87,7 @@ export default function NoteEditor({ note, onUpdate, appTheme }: Props) {
       Highlight.configure({ multicolor: true }),
       Link.configure({ openOnClick: false, HTMLAttributes: { class: 'text-indigo-400 underline cursor-pointer' } }),
       CharacterCount,
+      EditorShortcuts,
     ],
     content: note.content,
     editorProps: {
@@ -69,7 +103,7 @@ export default function NoteEditor({ note, onUpdate, appTheme }: Props) {
   // Sync content when note changes
   useEffect(() => {
     if (editor && editor.getJSON() !== note.content) {
-      editor.commands.setContent(note.content, false)
+      editor.commands.setContent(note.content, { emitUpdate: false })
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [note.id])
@@ -108,11 +142,12 @@ export default function NoteEditor({ note, onUpdate, appTheme }: Props) {
       onDrop={handleDrop}
       onDragOver={e => e.preventDefault()}
     >
-      {/* ── Cover banner (colour lives here only, does NOT bleed into title) ── */}
+      {/* ── Cover banner — drag the bottom edge to resize (40–360px) ── */}
       <div
+        ref={coverRef}
         className="relative w-full shrink-0 group overflow-hidden"
         style={{
-          height: note.cover ? 180 : 100,
+          height: coverHeight,
           ...(note.cover
             ? { backgroundImage: `url(${note.cover})`, backgroundSize: 'cover', backgroundPosition: 'center' }
             : { background: `linear-gradient(135deg, ${colorConfig.from} 0%, ${colorConfig.from}80 60%, transparent 100%)` }
@@ -190,6 +225,15 @@ export default function NoteEditor({ note, onUpdate, appTheme }: Props) {
             )}
           </div>
         </div>
+
+        {/* Drag handle to resize the header height */}
+        <div
+          onMouseDown={startCoverResize}
+          className="absolute bottom-0 left-0 right-0 h-2 cursor-ns-resize z-20 flex items-end justify-center group/handle"
+          title="Drag to resize header"
+        >
+          <div className="w-10 h-1 mb-0.5 rounded-full bg-white/30 opacity-0 group-hover:opacity-100 transition" />
+        </div>
       </div>
 
       {/* ── Title area — clean background, no colour bleed from above ── */}
@@ -201,26 +245,35 @@ export default function NoteEditor({ note, onUpdate, appTheme }: Props) {
           placeholder="Untitled"
           className={`w-full bg-transparent text-4xl font-extrabold focus:outline-none leading-tight mb-1 ${isDark ? 'text-white placeholder-slate-700' : 'text-slate-900 placeholder-slate-300'}`}
         />
-        <p className={`text-xs mb-5 ${isDark ? 'text-slate-600' : 'text-slate-400'}`}>
+        <p className={`text-xs mb-3 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
           {new Date(note.createdAt).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
         </p>
+        <TagEditor note={note} onUpdate={onUpdate} isDark={isDark} />
       </div>
 
       {/* Toolbar */}
       {editor && <Toolbar editor={editor} note={note} />}
 
-      {/* Editor content */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-[680px] mx-auto px-10 py-4 pb-10">
+      {/* Editor content (CSS zoom scales text + tables, reflows cleanly) */}
+      <div className="flex-1 overflow-auto">
+        <div className="max-w-[680px] mx-auto px-10 py-4 pb-10" style={{ zoom }}>
           <EditorContent editor={editor} className={isDark ? 'editor-dark' : 'editor-light'} />
         </div>
       </div>
 
       {/* Footer */}
-      <div className={`h-8 px-10 border-t flex items-center gap-4 text-xs shrink-0 max-w-[680px] w-full mx-auto ${isDark ? 'border-white/5 text-slate-600' : 'border-slate-200 text-slate-400'}`}>
+      <div className={`h-9 px-10 border-t flex items-center gap-4 text-xs shrink-0 max-w-[680px] w-full mx-auto ${isDark ? 'border-white/5 text-slate-500' : 'border-slate-200 text-slate-400'}`}>
         <span>{wordCount} words</span>
         <span>{charCount} chars</span>
-        <span className="ml-auto flex items-center gap-1 text-emerald-500">
+
+        {/* Zoom control */}
+        <div className={`ml-auto flex items-center gap-0.5 rounded-lg border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+          <button onClick={zoomOut} title="Zoom out" className={`px-2 py-0.5 rounded-l-lg transition ${isDark ? 'hover:bg-white/10 text-slate-400 hover:text-white' : 'hover:bg-slate-100 text-slate-500'}`}>−</button>
+          <button onClick={() => setZoom(1)} title="Reset zoom" className={`px-1.5 py-0.5 tabular-nums text-[11px] transition ${isDark ? 'hover:bg-white/10 text-slate-300' : 'hover:bg-slate-100 text-slate-600'}`}>{Math.round(zoom * 100)}%</button>
+          <button onClick={zoomIn} title="Zoom in" className={`px-2 py-0.5 rounded-r-lg transition ${isDark ? 'hover:bg-white/10 text-slate-400 hover:text-white' : 'hover:bg-slate-100 text-slate-500'}`}>+</button>
+        </div>
+
+        <span className="flex items-center gap-1 text-emerald-500">
           <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
           Saved
         </span>

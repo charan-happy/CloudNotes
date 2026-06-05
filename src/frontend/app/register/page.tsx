@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { register as apiRegister, saveSession, track } from '../../lib/api'
+import { useTheme, palette } from '../../lib/theme'
 
 function Logo({ size = 38 }: { size?: number }) {
   return (
@@ -26,14 +28,26 @@ function Logo({ size = 38 }: { size?: number }) {
   )
 }
 
-function Input({ label, type, value, onChange, placeholder }: {
+function ThemeToggle({ dark, onClick }: { dark: boolean; onClick: () => void }) {
+  return (
+    <button onClick={onClick} title="Toggle light / dark"
+      className="absolute top-5 right-5 z-20 p-2 rounded-xl transition"
+      style={{ background: dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', border: `1px solid ${dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`, color: dark ? '#9CA3AF' : '#6B7280' }}>
+      {dark
+        ? <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
+        : <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>}
+    </button>
+  )
+}
+
+function Input({ label, type, value, onChange, placeholder, p }: {
   label: string; type: string; value: string
-  onChange: (v: string) => void; placeholder: string
+  onChange: (v: string) => void; placeholder: string; p: ReturnType<typeof palette>
 }) {
   const [focused, setFocused] = useState(false)
   return (
     <div>
-      <label className="block text-xs font-bold uppercase tracking-widest mb-2" style={{ color: '#6B7280' }}>{label}</label>
+      <label className="block text-xs font-bold uppercase tracking-widest mb-2" style={{ color: p.label }}>{label}</label>
       <input
         type={type} value={value} placeholder={placeholder} required
         onChange={e => onChange(e.target.value)}
@@ -41,10 +55,10 @@ function Input({ label, type, value, onChange, placeholder }: {
         onBlur={() => setFocused(false)}
         className="w-full rounded-2xl px-4 py-3.5 text-sm transition-all focus:outline-none"
         style={{
-          background: '#0F0B14',
-          border: `1px solid ${focused ? 'rgba(236,72,153,0.6)' : 'rgba(255,255,255,0.07)'}`,
-          color: '#F1F0F0',
-          boxShadow: focused ? '0 0 0 3px rgba(236,72,153,0.1)' : 'none',
+          background: p.inputBg,
+          border: `1px solid ${focused ? 'rgba(236,72,153,0.6)' : p.inputBorder}`,
+          color: p.text,
+          boxShadow: focused ? '0 0 0 3px rgba(236,72,153,0.12)' : 'none',
         }}
       />
     </div>
@@ -53,6 +67,8 @@ function Input({ label, type, value, onChange, placeholder }: {
 
 export default function RegisterPage() {
   const router = useRouter()
+  const [theme, toggleTheme] = useTheme()
+  const p = palette(theme)
   const [form, setForm] = useState({ username: '', email: '', password: '', confirm: '' })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -66,15 +82,9 @@ export default function RegisterPage() {
     if (form.password !== form.confirm) { setError('Passwords do not match'); return }
     setError(''); setLoading(true)
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: form.username, email: form.email, password: form.password }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.detail || 'Registration failed')
-      localStorage.setItem('token', data.token)
-      localStorage.setItem('username', form.username)
+      const result = await apiRegister(form.username, form.email, form.password)
+      saveSession(result)
+      track('user_register', { username: result.username })
       router.push('/dashboard')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Registration failed')
@@ -84,13 +94,11 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="flex min-h-screen" style={{ background: '#07050A' }}>
+    <div className="flex min-h-screen relative" style={{ background: p.pageBg }}>
+      <ThemeToggle dark={p.dark} onClick={toggleTheme} />
 
       {/* ── Left: Brand panel ──────────────────────────────────────────── */}
-      <div className="hidden lg:flex lg:w-[55%] relative overflow-hidden flex-col"
-        style={{ background: 'linear-gradient(135deg, #0A1018 0%, #130A1A 50%, #180A10 100%)' }}>
-
-        {/* Aurora orbs */}
+      <div className="hidden lg:flex lg:w-[55%] relative overflow-hidden flex-col" style={{ background: p.panelBg }}>
         <div className="absolute -top-20 -left-20 w-[500px] h-[500px] rounded-full pointer-events-none"
           style={{ background: 'radial-gradient(circle, rgba(236,72,153,0.14) 0%, rgba(139,92,246,0.06) 40%, transparent 70%)' }} />
         <div className="absolute -bottom-20 right-0 w-[400px] h-[400px] rounded-full pointer-events-none"
@@ -99,33 +107,28 @@ export default function RegisterPage() {
         <div className="relative z-10 flex flex-col h-full px-14 py-12">
           <div className="flex items-center gap-3 mb-auto">
             <Logo size={40} />
-            <span className="font-black text-2xl tracking-tight text-white">CloudNotes</span>
+            <span className="font-black text-2xl tracking-tight" style={{ color: p.brandText }}>CloudNotes</span>
           </div>
 
           <div className="mb-auto py-10">
-            <p className="font-black leading-none tracking-tighter text-white mb-5"
-              style={{ fontSize: '4rem', lineHeight: 1.0 }}>
+            <p className="font-black leading-none tracking-tighter mb-5" style={{ fontSize: '4rem', lineHeight: 1.0, color: p.heading }}>
               Start building<br />
-              <span style={{
-                background: 'linear-gradient(90deg,#EC4899,#F97316)',
-                WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text'
-              }}>
+              <span style={{ background: 'linear-gradient(90deg,#EC4899,#F97316)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
                 your second brain.
               </span>
             </p>
-            <p className="text-lg leading-relaxed max-w-xs" style={{ color: '#4B5563' }}>
+            <p className="text-lg leading-relaxed max-w-xs" style={{ color: p.muted }}>
               Free forever. Rich editor, cloud storage, microservices backend. Everything you need to think clearly.
             </p>
           </div>
 
-          {/* Feature checklist */}
           <div className="space-y-2.5">
             {[
               'Rich text editor with tables & code blocks',
               'Drag-and-drop images and YouTube embeds',
               'Export to Markdown, HTML, JSON',
               'Dark & light mode per note',
-              'Full backup and restore',
+              'AI writing assistant built in',
             ].map(f => (
               <div key={f} className="flex items-center gap-3">
                 <div className="w-5 h-5 rounded-full flex items-center justify-center shrink-0"
@@ -134,45 +137,33 @@ export default function RegisterPage() {
                     <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                   </svg>
                 </div>
-                <p className="text-sm" style={{ color: '#4B5563' }}>{f}</p>
+                <p className="text-sm" style={{ color: p.muted }}>{f}</p>
               </div>
             ))}
           </div>
-        </div>
-
-        {/* Watermark */}
-        <div className="absolute right-0 bottom-0 font-black pointer-events-none select-none overflow-hidden"
-          style={{ fontSize: '18rem', lineHeight: 0.8, background: 'linear-gradient(135deg,#EC4899,#F97316)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', opacity: 0.04 }}>
-          CN
         </div>
       </div>
 
       {/* ── Right: Form panel ──────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col items-center justify-center px-8 py-12 relative">
-        <div className="absolute top-0 right-0 w-64 h-64 pointer-events-none"
-          style={{ background: 'radial-gradient(circle at 100% 0%, rgba(236,72,153,0.06) 0%, transparent 60%)' }} />
-        <div className="absolute bottom-0 left-0 w-48 h-48 pointer-events-none"
-          style={{ background: 'radial-gradient(circle at 0% 100%, rgba(249,115,22,0.05) 0%, transparent 60%)' }} />
-
-        {/* Mobile logo */}
         <div className="lg:hidden flex items-center gap-2.5 mb-10">
           <Logo size={34} />
-          <span className="font-black text-xl text-white">CloudNotes</span>
+          <span className="font-black text-xl" style={{ color: p.heading }}>CloudNotes</span>
         </div>
 
         <div className="w-full max-w-[360px]">
-          <h1 className="font-black text-3xl tracking-tight text-white mb-1">Create account</h1>
-          <p className="text-sm mb-7" style={{ color: '#4B5563' }}>Free forever. No credit card needed.</p>
+          <h1 className="font-black text-3xl tracking-tight mb-1" style={{ color: p.heading }}>Create account</h1>
+          <p className="text-sm mb-7" style={{ color: p.muted }}>Free forever. No credit card needed.</p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            <Input label="Username" type="text"     value={form.username} onChange={set('username')} placeholder="your_username" />
-            <Input label="Email"    type="email"    value={form.email}    onChange={set('email')}    placeholder="you@example.com" />
-            <Input label="Password" type="password" value={form.password} onChange={set('password')} placeholder="min 8 characters" />
-            <Input label="Confirm password" type="password" value={form.confirm} onChange={set('confirm')} placeholder="••••••••" />
+            <Input label="Username" type="text" value={form.username} onChange={set('username')} placeholder="your_username" p={p} />
+            <Input label="Email" type="email" value={form.email} onChange={set('email')} placeholder="you@example.com" p={p} />
+            <Input label="Password" type="password" value={form.password} onChange={set('password')} placeholder="min 8 characters" p={p} />
+            <Input label="Confirm password" type="password" value={form.confirm} onChange={set('confirm')} placeholder="••••••••" p={p} />
 
             {error && (
               <div className="flex items-center gap-2 text-sm rounded-2xl px-4 py-3"
-                style={{ background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.2)', color: '#F87171' }}>
+                style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#EF4444' }}>
                 <svg className="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                 </svg>
@@ -194,8 +185,8 @@ export default function RegisterPage() {
           </form>
 
           <div className="flex items-center justify-between mt-6">
-            <Link href="/" className="text-xs" style={{ color: '#374151' }}>← Back to home</Link>
-            <Link href="/login" className="text-xs font-bold" style={{ color: '#F9A8D4' }}>Sign in instead</Link>
+            <Link href="/" className="text-xs font-medium transition hover:opacity-80" style={{ color: p.muted }}>← Back to home</Link>
+            <Link href="/login" className="text-xs font-bold transition hover:opacity-80" style={{ color: p.link }}>Sign in instead</Link>
           </div>
         </div>
       </div>

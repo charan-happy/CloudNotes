@@ -56,7 +56,8 @@ export default function HealthPage() {
   const [healths, setHealths] = useState<Record<string, ServiceHealth | null>>({})
   const [loading, setLoading] = useState(true)
   const [lastChecked, setLastChecked] = useState<Date | null>(null)
-  const [expanded, setExpanded] = useState<string | null>('auth')
+  // All services expanded by default so every card shows the same full detail.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set(SERVICES.map(s => s.key)))
 
   async function fetchAll() {
     const results: Record<string, ServiceHealth | null> = {}
@@ -143,14 +144,19 @@ export default function HealthPage() {
           {SERVICES.map(svc => {
             const h = healths[svc.key]
             const isDown = !h || h.error
-            const isExpanded = expanded === svc.key
+            const isExpanded = expanded.has(svc.key)
+            const toggle = () => setExpanded(prev => {
+              const next = new Set(prev)
+              if (next.has(svc.key)) next.delete(svc.key); else next.add(svc.key)
+              return next
+            })
 
             return (
               <div key={svc.key} className="rounded-2xl border overflow-hidden transition-all"
                 style={{ borderColor: isDown ? 'rgba(239,68,68,0.2)' : `${svc.color}25`, background: isDown ? 'rgba(239,68,68,0.04)' : `${svc.color}06` }}>
 
                 {/* Card header */}
-                <button className="w-full flex items-center gap-4 px-5 py-4 text-left" onClick={() => setExpanded(isExpanded ? null : svc.key)}>
+                <button className="w-full flex items-center gap-4 px-5 py-4 text-left" onClick={toggle}>
                   <span className="text-2xl">{svc.icon}</span>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">

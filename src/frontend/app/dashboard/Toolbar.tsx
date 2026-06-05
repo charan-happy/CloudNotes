@@ -5,6 +5,7 @@ import { useRef, useState } from 'react'
 import type { Note } from './types'
 import { downloadFile } from './types'
 import TurndownService from 'turndown'
+import { marked } from 'marked'
 
 interface Props {
   editor: Editor
@@ -35,8 +36,108 @@ export default function Toolbar({ editor, note }: Props) {
   const [ytUrl, setYtUrl] = useState('')
   const [showEmbedInput, setShowEmbedInput] = useState(false)
   const [embedUrl, setEmbedUrl] = useState('')
+  const [showAI, setShowAI] = useState(false)
+  const [aiLoading, setAiLoading] = useState<string | null>(null)
+  const [aiError, setAiError] = useState('')
+  const [aiSetup, setAiSetup] = useState(false)
   const imageRef = useRef<HTMLInputElement>(null)
   const exportRef = useRef<HTMLDivElement>(null)
+  const importRef = useRef<HTMLInputElement>(null)
+  const attachRef = useRef<HTMLInputElement>(null)
+  // Selection is captured when the AI menu opens, before the click blurs the editor.
+  const aiSelRef = useRef<{ from: number; to: number } | null>(null)
+
+  // Import a Markdown / Notion-export / HTML / text file into the current note.
+  async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const text = await file.text()
+    const lower = file.name.toLowerCase()
+    let html: string
+    if (lower.endsWith('.html') || lower.endsWith('.htm')) {
+      html = text
+    } else if (lower.endsWith('.md') || lower.endsWith('.markdown') || lower.endsWith('.txt')) {
+      // Notion exports pages as Markdown — this imports them faithfully.
+      html = await marked.parse(text)
+    } else {
+      html = `<p>${text.replace(/&/g, '&amp;').replace(/</g, '&lt;').split('\n').join('<br>')}</p>`
+    }
+    editor.chain().focus().insertContent(html).run()
+    e.target.value = ''
+  }
+
+  // Attach any document (docx, xlsx, pdf, …) as a downloadable chip in the note.
+  async function handleAttach(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Attachment too large (max 5MB). For larger files use object storage (S3 / GCS).')
+      e.target.value = ''
+      return
+    }
+    const dataUrl: string = await new Promise((res, rej) => {
+      const r = new FileReader(); r.onload = () => res(r.result as string); r.onerror = rej; r.readAsDataURL(file)
+    })
+    const ext = (file.name.split('.').pop() || 'file').toLowerCase()
+    const emoji = ext.match(/xlsx?|csv|numbers/) ? '📊'
+      : ext.match(/docx?|pages|odt/) ? '📄'
+      : ext.match(/pdf/) ? '📕'
+      : ext.match(/pptx?|key/) ? '📑'
+      : ext.match(/zip|tar|gz/) ? '🗜️' : '📎'
+    const kb = Math.max(1, Math.round(file.size / 1024))
+    const chip = `<p><a href="${dataUrl}" download="${file.name}" style="display:inline-flex;align-items:center;gap:8px;padding:8px 14px;background:#1e1b4b;color:#c7d2fe;border:1px solid #4338ca;border-radius:10px;text-decoration:none;font-size:13px;">${emoji} ${file.name} <span style="opacity:0.6">· ${kb} KB · download</span></a></p>`
+    editor.chain().focus().insertContent(chip).run()
+    e.target.value = ''
+  }
+
+  const AI_ACTIONS: { key: string; label: string; icon: string }[] = [
+    { key: 'improve', label: 'Improve writing', icon: '✨' },
+    { key: 'rephrase', label: 'Rephrase', icon: '🔄' },
+    { key: 'grammar', label: 'Fix grammar', icon: '✓' },
+    { key: 'shorter', label: 'Make shorter', icon: '✂️' },
+    { key: 'longer', label: 'Make longer', icon: '➕' },
+    { key: 'summarize', label: 'Summarize', icon: '📝' },
+    { key: 'professional', label: 'Professional tone', icon: '💼' },
+    { key: 'casual', label: 'Casual tone', icon: '😊' },
+    { key: 'bullets', label: 'Turn into bullets', icon: '•' },
+  ]
+
+  // Capture the current selection the moment the AI button is pressed.
+  function openAI() {
+    const { from, to } = editor.state.selection
+    aiSelRef.current = from !== to ? { from, to } : null
+    setShowAI(v => !v)
+    setAiError('')
+  }
+
+  async function runAI(action: string) {
+    const sel = aiSelRef.current
+    const range = sel ?? { from: editor.state.selection.from, to: editor.state.selection.to }
+    const text = editor.state.doc.textBetween(range.from, range.to, ' ')
+    if (!text.trim()) {
+      setAiError('Highlight some text in the note first, then click ✨ AI.')
+      return
+    }
+    setAiError('')
+    setAiLoading(action)
+    try {
+      const res = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, text }),
+      })
+      const data = await res.json()
+      if (res.status === 503) { setAiSetup(true); return }   // not configured
+      if (!res.ok) throw new Error(data.error || 'AI request failed')
+      editor.chain().focus().insertContentAt(range, data.result).run()
+      aiSelRef.current = null
+      setShowAI(false)
+    } catch (err) {
+      setAiError(err instanceof Error ? err.message : 'AI request failed')
+    } finally {
+      setAiLoading(null)
+    }
+  }
 
   function exportMarkdown() {
     const td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced', bulletListMarker: '-' })
@@ -83,6 +184,51 @@ export default function Toolbar({ editor, note }: Props) {
 
   function insertTable() {
     editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
+  }
+
+  // Excel-style auto-sum: appends a "Total" row summing each numeric column.
+  function sumTable() {
+    const { $from } = editor.state.selection
+    let tableNode = null as null | import('@tiptap/pm/model').Node
+    let tablePos = -1
+    for (let d = $from.depth; d > 0; d--) {
+      const node = $from.node(d)
+      if (node.type.name === 'table') { tableNode = node; tablePos = $from.before(d); break }
+    }
+    if (!tableNode) { alert('Place the cursor inside a table first, then click Σ.'); return }
+
+    const rows: string[][] = []
+    tableNode.forEach(row => {
+      const cells: string[] = []
+      row.forEach(cell => cells.push(cell.textContent.trim()))
+      rows.push(cells)
+    })
+    const colCount = Math.max(...rows.map(r => r.length))
+    const parseNum = (s: string): number | null => {
+      const m = s.replace(/,/g, '').match(/-?\d+(\.\d+)?/)
+      return m ? parseFloat(m[0]) : null
+    }
+
+    const { tableRow, tableCell, paragraph } = editor.schema.nodes
+    const cellNodes = []
+    let foundAny = false
+    for (let c = 0; c < colCount; c++) {
+      let sum = 0, has = false
+      for (let r = 0; r < rows.length; r++) {
+        const n = parseNum(rows[r][c] || '')
+        if (n !== null) { sum += n; has = true }
+      }
+      let label = ''
+      if (c === 0) label = 'Total'
+      else if (has) { label = Number.isInteger(sum) ? String(sum) : sum.toFixed(2); foundAny = true }
+      const para = label ? paragraph.create(null, editor.schema.text(label)) : paragraph.create()
+      cellNodes.push(tableCell.create(null, para))
+    }
+    if (!foundAny) { alert('No numeric columns found to sum.'); return }
+
+    const rowNode = tableRow.create(null, cellNodes)
+    const insertPos = tablePos + tableNode.nodeSize - 1   // just before the table closes
+    editor.chain().focus().insertContentAt(insertPos, rowNode.toJSON()).run()
   }
 
   const blockType = editor.isActive('heading', { level: 1 }) ? 'H1'
@@ -160,19 +306,28 @@ export default function Toolbar({ editor, note }: Props) {
 
         {/* Insert media */}
         <div className="flex gap-0.5">
-          <Btn onClick={() => imageRef.current?.click()} active={false} title="Upload image">
+          <Btn onClick={() => imageRef.current?.click()} active={false} title="Upload image (⌘⌥I for URL)">
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
           </Btn>
-          <Btn onClick={() => setShowYtInput(v => !v)} active={showYtInput} title="Embed YouTube video">
+          <Btn onClick={() => setShowYtInput(v => !v)} active={showYtInput} title="Embed YouTube video (⌘⌥Y)">
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
           </Btn>
-          <Btn onClick={insertTable} active={editor.isActive('table')} title="Insert table">
+          <Btn onClick={insertTable} active={editor.isActive('table')} title="Insert table (⌘⌥T)">
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18M10 3v18M14 3v18M3 6a3 3 0 013-3h12a3 3 0 013 3v12a3 3 0 01-3 3H6a3 3 0 01-3-3V6z" /></svg>
           </Btn>
-          <Btn onClick={() => setShowLinkInput(v => !v)} active={editor.isActive('link') || showLinkInput} title="Insert link">🔗</Btn>
+          {editor.isActive('table') && (
+            <Btn onClick={sumTable} active={false} title="Auto-sum columns (adds a Total row)">
+              <span className="font-bold text-sm">Σ</span>
+            </Btn>
+          )}
+          <Btn onClick={() => setShowLinkInput(v => !v)} active={editor.isActive('link') || showLinkInput} title="Insert link (⌘K)">🔗</Btn>
           <Btn onClick={() => setShowEmbedInput(v => !v)} active={showEmbedInput} title="Embed diagram (Excalidraw / Miro / Lucidchart)">
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" /></svg>
           </Btn>
+          <Btn onClick={() => importRef.current?.click()} active={false} title="Import Markdown / Notion export / HTML">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" /></svg>
+          </Btn>
+          <Btn onClick={() => attachRef.current?.click()} active={false} title="Attach a document or spreadsheet (docx, xlsx, pdf…)">📎</Btn>
         </div>
         <Sep />
 
@@ -180,6 +335,63 @@ export default function Toolbar({ editor, note }: Props) {
         <div className="flex gap-0.5">
           <Btn onClick={() => editor.chain().focus().undo().run()} active={false} title="Undo">↩</Btn>
           <Btn onClick={() => editor.chain().focus().redo().run()} active={false} title="Redo">↪</Btn>
+        </div>
+        <Sep />
+
+        {/* AI assist */}
+        <div className="relative">
+          <button
+            onMouseDown={e => { e.preventDefault(); openAI() }}
+            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition text-white"
+            style={{ background: 'linear-gradient(135deg,#8B5CF6,#EC4899)' }}
+            title="AI writing assistant (highlight text first)"
+          >
+            ✨ AI
+          </button>
+          {showAI && (
+            <div className="absolute right-0 top-9 bg-[#1a1a1f] border border-white/10 rounded-xl shadow-2xl p-1.5 z-50 w-64">
+              {aiSetup ? (
+                <div className="px-3 py-2.5">
+                  <p className="text-sm font-semibold text-white mb-1.5">✨ Enable AI assist</p>
+                  <p className="text-[11px] text-slate-400 leading-relaxed mb-2">
+                    AI rewrites need a Claude API key. It runs server-side — your key never reaches the browser.
+                  </p>
+                  <ol className="text-[11px] text-slate-300 space-y-1 list-decimal pl-4 mb-2">
+                    <li>Get a key at <span className="text-violet-300">console.anthropic.com</span></li>
+                    <li>Add to <code className="text-violet-300">src/frontend/.env.local</code>:</li>
+                  </ol>
+                  <pre className="text-[10px] bg-black/40 rounded-lg p-2 text-emerald-300 overflow-x-auto mb-2">ANTHROPIC_API_KEY=sk-ant-...</pre>
+                  <p className="text-[11px] text-slate-400">3. Restart the dev server. Done!</p>
+                  <button onClick={() => { setAiSetup(false); setShowAI(false) }} className="mt-2 text-[11px] text-violet-300 hover:text-violet-200">Got it</button>
+                </div>
+              ) : (
+                <>
+                  <p className="text-[10px] uppercase tracking-wider text-slate-500 px-3 pt-1 pb-1.5">
+                    {aiSelRef.current ? 'Choose an action' : 'Highlight text first'}
+                  </p>
+                  {AI_ACTIONS.map(a => (
+                    <button
+                      key={a.key}
+                      onMouseDown={e => e.preventDefault()}
+                      onClick={() => runAI(a.key)}
+                      disabled={aiLoading !== null}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-white/8 text-sm text-slate-200 transition disabled:opacity-50"
+                    >
+                      <span className="w-5 text-center">{a.icon}</span>
+                      {a.label}
+                      {aiLoading === a.key && (
+                        <svg className="animate-spin h-3.5 w-3.5 ml-auto text-violet-400" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                      )}
+                    </button>
+                  ))}
+                  {aiError && <p className="text-[11px] text-amber-400 px-3 py-1.5">{aiError}</p>}
+                </>
+              )}
+            </div>
+          )}
         </div>
         <Sep />
 
@@ -210,6 +422,8 @@ export default function Toolbar({ editor, note }: Props) {
 
         {/* Hidden image input */}
         <input ref={imageRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+        <input ref={importRef} type="file" accept=".md,.markdown,.txt,.html,.htm" className="hidden" onChange={handleImport} />
+        <input ref={attachRef} type="file" className="hidden" onChange={handleAttach} />
       </div>
 
       {/* Link input bar */}

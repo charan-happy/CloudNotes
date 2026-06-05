@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { login as apiLogin, saveSession, track } from '../../lib/api'
+import { useTheme, palette } from '../../lib/theme'
 
 function Logo({ size = 38 }: { size?: number }) {
   return (
@@ -26,14 +28,26 @@ function Logo({ size = 38 }: { size?: number }) {
   )
 }
 
-function Input({ label, type, value, onChange, placeholder }: {
+function ThemeToggle({ dark, onClick }: { dark: boolean; onClick: () => void }) {
+  return (
+    <button onClick={onClick} title="Toggle light / dark"
+      className="absolute top-5 right-5 z-20 p-2 rounded-xl transition"
+      style={{ background: dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', border: `1px solid ${dark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`, color: dark ? '#9CA3AF' : '#6B7280' }}>
+      {dark
+        ? <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
+        : <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>}
+    </button>
+  )
+}
+
+function Input({ label, type, value, onChange, placeholder, p }: {
   label: string; type: string; value: string
-  onChange: (v: string) => void; placeholder: string
+  onChange: (v: string) => void; placeholder: string; p: ReturnType<typeof palette>
 }) {
   const [focused, setFocused] = useState(false)
   return (
     <div>
-      <label className="block text-xs font-bold uppercase tracking-widest mb-2" style={{ color: '#6B7280' }}>{label}</label>
+      <label className="block text-xs font-bold uppercase tracking-widest mb-2" style={{ color: p.label }}>{label}</label>
       <input
         type={type} value={value} placeholder={placeholder} required
         onChange={e => onChange(e.target.value)}
@@ -41,10 +55,10 @@ function Input({ label, type, value, onChange, placeholder }: {
         onBlur={() => setFocused(false)}
         className="w-full rounded-2xl px-4 py-3.5 text-sm transition-all focus:outline-none"
         style={{
-          background: '#0F0B14',
-          border: `1px solid ${focused ? 'rgba(139,92,246,0.6)' : 'rgba(255,255,255,0.07)'}`,
-          color: '#F1F0F0',
-          boxShadow: focused ? '0 0 0 3px rgba(139,92,246,0.1)' : 'none',
+          background: p.inputBg,
+          border: `1px solid ${focused ? 'rgba(139,92,246,0.6)' : p.inputBorder}`,
+          color: p.text,
+          boxShadow: focused ? '0 0 0 3px rgba(139,92,246,0.12)' : 'none',
         }}
       />
     </div>
@@ -53,6 +67,8 @@ function Input({ label, type, value, onChange, placeholder }: {
 
 export default function LoginPage() {
   const router = useRouter()
+  const [theme, toggleTheme] = useTheme()
+  const p = palette(theme)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -63,11 +79,9 @@ export default function LoginPage() {
     setError('')
     setLoading(true)
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/login?username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`)
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.detail || 'Invalid credentials')
-      localStorage.setItem('token', data.token)
-      localStorage.setItem('username', username)
+      const result = await apiLogin(username, password)
+      saveSession(result)
+      track('user_login', { username: result.username })
       router.push('/dashboard')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed')
@@ -77,90 +91,67 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen" style={{ background: '#07050A' }}>
+    <div className="flex min-h-screen relative" style={{ background: p.pageBg }}>
+      <ThemeToggle dark={p.dark} onClick={toggleTheme} />
 
       {/* ── Left: Brand panel ──────────────────────────────────────────── */}
-      <div className="hidden lg:flex lg:w-[55%] relative overflow-hidden flex-col"
-        style={{ background: 'linear-gradient(135deg, #0D0818 0%, #130A1A 50%, #0A1018 100%)' }}>
-
-        {/* Aurora orb top-right */}
+      <div className="hidden lg:flex lg:w-[55%] relative overflow-hidden flex-col" style={{ background: p.panelBg }}>
         <div className="absolute -top-32 -right-32 w-[600px] h-[600px] rounded-full pointer-events-none"
           style={{ background: 'radial-gradient(circle, rgba(139,92,246,0.18) 0%, rgba(236,72,153,0.08) 40%, transparent 70%)' }} />
         <div className="absolute -bottom-32 -left-16 w-[400px] h-[400px] rounded-full pointer-events-none"
           style={{ background: 'radial-gradient(circle, rgba(249,115,22,0.1) 0%, transparent 70%)' }} />
 
         <div className="relative z-10 flex flex-col h-full px-14 py-12">
-          {/* Logo + name */}
           <div className="flex items-center gap-3 mb-auto">
             <Logo size={40} />
-            <span className="font-black text-2xl tracking-tight text-white">CloudNotes</span>
+            <span className="font-black text-2xl tracking-tight" style={{ color: p.brandText }}>CloudNotes</span>
           </div>
 
-          {/* Hero text */}
           <div className="mb-auto py-10">
-            <p className="font-black leading-none tracking-tighter text-white mb-5"
-              style={{ fontSize: '4rem', lineHeight: 1.0 }}>
+            <p className="font-black leading-none tracking-tighter mb-5" style={{ fontSize: '4rem', lineHeight: 1.0, color: p.heading }}>
               Ideas are<br />
-              <span style={{
-                background: 'linear-gradient(90deg,#8B5CF6,#EC4899,#F97316)',
-                WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text'
-              }}>
+              <span style={{ background: 'linear-gradient(90deg,#8B5CF6,#EC4899,#F97316)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
                 fleeting.
               </span>
             </p>
-            <p className="text-lg leading-relaxed max-w-xs" style={{ color: '#4B5563' }}>
+            <p className="text-lg leading-relaxed max-w-xs" style={{ color: p.muted }}>
               Write them down before they vanish. CloudNotes keeps your thoughts, code snippets, and plans forever.
             </p>
           </div>
 
-          {/* Mini service badges */}
           <div className="flex flex-wrap gap-2">
             {[
               { l: 'Python', c: '#8B5CF6' }, { l: 'Go', c: '#06B6D4' },
-              { l: 'Java', c: '#F59E0B' },   { l: 'Node.js', c: '#10B981' },
-              { l: 'Kubernetes', c: '#4B5563' }, { l: 'PostgreSQL', c: '#4B5563' },
+              { l: 'Java', c: '#F59E0B' }, { l: 'Node.js', c: '#10B981' },
+              { l: 'Kubernetes', c: p.muted }, { l: 'PostgreSQL', c: p.muted },
             ].map(t => (
               <span key={t.l} className="text-xs px-3 py-1.5 rounded-full font-semibold"
-                style={{ background: `${t.c}12`, border: `1px solid ${t.c}25`, color: t.c }}>
+                style={{ background: `${t.c}14`, border: `1px solid ${t.c}30`, color: t.c }}>
                 {t.l}
               </span>
             ))}
           </div>
         </div>
-
-        {/* Watermark */}
-        <div className="absolute right-0 bottom-0 font-black pointer-events-none select-none overflow-hidden"
-          style={{ fontSize: '18rem', lineHeight: 0.8, background: 'linear-gradient(135deg,#8B5CF6,#EC4899,#F97316)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', opacity: 0.04 }}>
-          CN
-        </div>
       </div>
 
       {/* ── Right: Form panel ──────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col items-center justify-center px-8 py-12 relative">
-
-        {/* Aurora corner glow */}
-        <div className="absolute top-0 right-0 w-64 h-64 pointer-events-none"
-          style={{ background: 'radial-gradient(circle at 100% 0%, rgba(139,92,246,0.06) 0%, transparent 60%)' }} />
-        <div className="absolute bottom-0 left-0 w-48 h-48 pointer-events-none"
-          style={{ background: 'radial-gradient(circle at 0% 100%, rgba(249,115,22,0.05) 0%, transparent 60%)' }} />
-
-        {/* Mobile logo */}
         <div className="lg:hidden flex items-center gap-2.5 mb-10">
           <Logo size={34} />
-          <span className="font-black text-xl text-white">CloudNotes</span>
+          <span className="font-black text-xl" style={{ color: p.heading }}>CloudNotes</span>
         </div>
 
         <div className="w-full max-w-[360px]">
-          <h1 className="font-black text-3xl tracking-tight text-white mb-1">Welcome back</h1>
-          <p className="text-sm mb-8" style={{ color: '#4B5563' }}>Pick up where you left off.</p>
+          <h1 className="font-black text-3xl tracking-tight mb-1" style={{ color: p.heading }}>Welcome back</h1>
+          <p className="text-sm mb-8" style={{ color: p.muted }}>Pick up where you left off.</p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            <Input label="Username" type="text"     value={username} onChange={setUsername} placeholder="your_username" />
-            <Input label="Password" type="password" value={password} onChange={setPassword} placeholder="••••••••" />
+            <Input label="Username" type="text" value={username} onChange={setUsername} placeholder="your_username" p={p} />
+            <Input label="Password" type="password" value={password} onChange={setPassword} placeholder="••••••••" p={p} />
 
             {error && (
               <div className="flex items-center gap-2 text-sm rounded-2xl px-4 py-3"
-                style={{ background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.2)', color: '#F87171' }}>
+                style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#EF4444' }}>
                 <svg className="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                 </svg>
@@ -182,8 +173,8 @@ export default function LoginPage() {
           </form>
 
           <div className="flex items-center justify-between mt-6">
-            <Link href="/" className="text-xs" style={{ color: '#374151' }}>← Back to home</Link>
-            <Link href="/register" className="text-xs font-bold" style={{ color: '#A78BFA' }}>Create account</Link>
+            <Link href="/" className="text-xs font-medium transition hover:opacity-80" style={{ color: p.muted }}>← Back to home</Link>
+            <Link href="/register" className="text-xs font-bold transition hover:opacity-80" style={{ color: p.link }}>Create account</Link>
           </div>
         </div>
       </div>

@@ -7,10 +7,22 @@ export interface Note {
   cover?: string
   color: string
   noteTheme?: 'inherit' | 'dark' | 'light'
+  tags: string[]
   content: JSONContent
   createdAt: number
   updatedAt: number
   pinned: boolean
+}
+
+// Suggested tags shown when adding one to a note.
+export const SUGGESTED_TAGS = ['Personal', 'Work', 'Professional', 'Ideas', 'Todo', 'Project', 'Learning', 'Finance']
+
+// Deterministic colour for a tag so the same tag always looks the same.
+export function tagColor(tag: string): string {
+  const palette = ['#6366f1', '#8b5cf6', '#10b981', '#f59e0b', '#f43f5e', '#0ea5e9', '#14b8a6', '#d946ef']
+  let h = 0
+  for (let i = 0; i < tag.length; i++) h = (h * 31 + tag.charCodeAt(i)) >>> 0
+  return palette[h % palette.length]
 }
 
 export const NOTE_COLORS = [

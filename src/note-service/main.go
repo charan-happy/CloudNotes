@@ -1,50 +1,128 @@
+// CloudNotes Note Service — production Gin app.
+//
+//   - PostgreSQL via pgxpool with startup retry and graceful shutdown
+//   - JWT auth: every note is scoped to the authenticated user (token "sub")
+//   - Prometheus /metrics, DB-aware /v1/health-status
+//   - Cloud-agnostic: all config via env (RDS / Cloud SQL / Azure / OCI)
 package main
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"os"
-	"sync"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
-)
-
-type Note struct {
-	ID        string    `json:"id"`
-	UserID    string    `json:"user_id"`
-	Title     string    `json:"title"     binding:"required"`
-	Content   string    `json:"content"`
-	Tags      []string  `json:"tags"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
-
-type CreateNoteRequest struct {
-	UserID  string   `json:"user_id"  binding:"required"`
-	Title   string   `json:"title"    binding:"required"`
-	Content string   `json:"content"`
-	Tags    []string `json:"tags"`
-}
-
-type UpdateNoteRequest struct {
-	Title   *string  `json:"title"`
-	Content *string  `json:"content"`
-	Tags    []string `json:"tags"`
-}
-
-// In-memory store — swap for PostgreSQL (see README)
-var (
-	store = map[string]*Note{}
-	mu    sync.RWMutex
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func main() {
-	r := gin.Default()
+	logger := setupLogger()
+	cfg := loadConfig()
 
-	// CORS
-	r.Use(func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", "*")
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	pool, err := newPool(ctx, cfg)
+	cancel()
+	if err != nil {
+		logger.Error("startup failed", "error", err)
+		os.Exit(1)
+	}
+	defer pool.Close()
+
+	h := &Handler{pool: pool, timeout: cfg.RequestTimeout}
+
+	if os.Getenv("GIN_MODE") == "" {
+		gin.SetMode(gin.ReleaseMode)
+	}
+	r := gin.New()
+	r.Use(gin.Recovery(), requestLogger(), metricsMiddleware(), corsMiddleware())
+
+	// Unauthenticated infra endpoints.
+	r.GET("/", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "Note Service is running!"})
+	})
+	r.GET("/v1/health-status", h.healthStatus)
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
+
+	// Authenticated note CRUD — JWT required, scoped to the caller.
+	notes := r.Group("/v1/notes", authMiddleware(cfg.JWTSecret))
+	{
+		notes.GET("", h.listNotes)
+		notes.POST("", h.createNote)
+		notes.GET("/:id", h.getNote)
+		notes.PUT("/:id", h.updateNote)
+		notes.DELETE("/:id", h.deleteNote)
+	}
+
+	srv := &http.Server{
+		Addr:              ":" + cfg.Port,
+		Handler:           r,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+
+	// Run server, then block on shutdown signal.
+	go func() {
+		logger.Info("listening", "port", cfg.Port)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Error("listen failed", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+	<-stop
+	logger.Info("shutdown signal received, draining connections")
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
+	defer shutdownCancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		logger.Error("graceful shutdown failed", "error", err)
+	}
+	logger.Info("stopped cleanly")
+}
+
+func (h *Handler) healthStatus(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
+	defer cancel()
+
+	dbOK := h.pool.Ping(ctx) == nil
+	var noteCount int64
+	if dbOK {
+		_ = h.pool.QueryRow(ctx, "SELECT COUNT(*) FROM notes").Scan(&noteCount)
+	}
+	status := "healthy"
+	code := http.StatusOK
+	if !dbOK {
+		status, code = "degraded", http.StatusServiceUnavailable
+	}
+	c.JSON(code, gin.H{
+		"service":    "note-service",
+		"version":    "1.0.0",
+		"status":     status,
+		"language":   "Go",
+		"framework":  "Gin",
+		"database":   map[bool]string{true: "connected", false: "unreachable"}[dbOK],
+		"note_count": noteCount,
+		"endpoints": []gin.H{
+			{"method": "GET", "path": "/v1/health-status", "description": "Readiness + DB health"},
+			{"method": "GET", "path": "/metrics", "description": "Prometheus metrics"},
+			{"method": "GET", "path": "/v1/notes", "description": "List caller's notes"},
+			{"method": "POST", "path": "/v1/notes", "description": "Create a note"},
+			{"method": "GET", "path": "/v1/notes/:id", "description": "Get note by ID"},
+			{"method": "PUT", "path": "/v1/notes/:id", "description": "Update a note"},
+			{"method": "DELETE", "path": "/v1/notes/:id", "description": "Delete a note"},
+		},
+	})
+}
+
+func corsMiddleware() gin.HandlerFunc {
+	origins := getenv("CORS_ORIGINS", "http://localhost:3000")
+	return func(c *gin.Context) {
+		c.Header("Access-Control-Allow-Origin", origins)
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if c.Request.Method == http.MethodOptions {
@@ -52,136 +130,5 @@ func main() {
 			return
 		}
 		c.Next()
-	})
-
-	r.GET("/", health)
-	r.GET("/v1/health-status", healthDetail)
-
-	v1 := r.Group("/v1/notes")
-	{
-		v1.GET("", listNotes)
-		v1.POST("", createNote)
-		v1.GET("/:id", getNote)
-		v1.PUT("/:id", updateNote)
-		v1.DELETE("/:id", deleteNote)
 	}
-
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8001"
-	}
-	r.Run(":" + port)
-}
-
-func health(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"status": "Note Service is running!"})
-}
-
-func healthDetail(c *gin.Context) {
-	mu.RLock()
-	count := len(store)
-	mu.RUnlock()
-	c.JSON(http.StatusOK, gin.H{
-		"service": "note-service",
-		"version": "1.0.0",
-		"status":  "healthy",
-		"language": "Go",
-		"framework": "Gin",
-		"note_count": count,
-		"endpoints": []gin.H{
-			{"method": "GET",    "path": "/v1/notes",     "description": "List all notes"},
-			{"method": "POST",   "path": "/v1/notes",     "description": "Create a note"},
-			{"method": "GET",    "path": "/v1/notes/:id", "description": "Get note by ID"},
-			{"method": "PUT",    "path": "/v1/notes/:id", "description": "Update a note"},
-			{"method": "DELETE", "path": "/v1/notes/:id", "description": "Delete a note"},
-		},
-	})
-}
-
-func listNotes(c *gin.Context) {
-	userID := c.Query("user_id")
-	mu.RLock()
-	defer mu.RUnlock()
-	notes := []*Note{}
-	for _, n := range store {
-		if userID == "" || n.UserID == userID {
-			notes = append(notes, n)
-		}
-	}
-	c.JSON(http.StatusOK, gin.H{"notes": notes, "count": len(notes)})
-}
-
-func createNote(c *gin.Context) {
-	var req CreateNoteRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	note := &Note{
-		ID:        uuid.NewString(),
-		UserID:    req.UserID,
-		Title:     req.Title,
-		Content:   req.Content,
-		Tags:      req.Tags,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}
-	if note.Tags == nil {
-		note.Tags = []string{}
-	}
-	mu.Lock()
-	store[note.ID] = note
-	mu.Unlock()
-	c.JSON(http.StatusCreated, note)
-}
-
-func getNote(c *gin.Context) {
-	id := c.Param("id")
-	mu.RLock()
-	note, ok := store[id]
-	mu.RUnlock()
-	if !ok {
-		c.JSON(http.StatusNotFound, gin.H{"error": "note not found"})
-		return
-	}
-	c.JSON(http.StatusOK, note)
-}
-
-func updateNote(c *gin.Context) {
-	id := c.Param("id")
-	mu.Lock()
-	defer mu.Unlock()
-	note, ok := store[id]
-	if !ok {
-		c.JSON(http.StatusNotFound, gin.H{"error": "note not found"})
-		return
-	}
-	var req UpdateNoteRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	if req.Title != nil {
-		note.Title = *req.Title
-	}
-	if req.Content != nil {
-		note.Content = *req.Content
-	}
-	if req.Tags != nil {
-		note.Tags = req.Tags
-	}
-	note.UpdatedAt = time.Now()
-	c.JSON(http.StatusOK, note)
-}
-
-func deleteNote(c *gin.Context) {
-	id := c.Param("id")
-	mu.Lock()
-	defer mu.Unlock()
-	if _, ok := store[id]; !ok {
-		c.JSON(http.StatusNotFound, gin.H{"error": "note not found"})
-		return
-	}
-	delete(store, id)
-	c.JSON(http.StatusOK, gin.H{"message": "note deleted"})
 }
