@@ -149,6 +149,8 @@ export interface Share {
   token: string
   permission: 'view' | 'edit'
   shared_with_user_id?: string | null
+  shared_with_email?: string | null  // set for a pending invite
+  pending?: boolean                   // invited an email with no account yet
   has_password: boolean
   expires_at?: string | null
   created_at: string

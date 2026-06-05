@@ -67,6 +67,26 @@ async function resolvePermission(noteId, token) {
       )
       if (shared.rowCount > 0) return { userId, name, permission: shared.rows[0].permission }
 
+      // Pending invite addressed to this user's email (they had no account when
+      // the note was shared). Match on the JWT email claim, then claim it.
+      if (claims.email) {
+        const pending = await pool.query(
+          `SELECT id, permission FROM note_shares
+           WHERE note_id = $1 AND shared_with_user_id IS NULL
+             AND LOWER(shared_with_email) = LOWER($2)
+             AND (expires_at IS NULL OR expires_at > NOW())
+           ORDER BY (permission = 'edit') DESC LIMIT 1`,
+          [noteId, claims.email],
+        )
+        if (pending.rowCount > 0) {
+          await pool.query(
+            'UPDATE note_shares SET shared_with_user_id = $1 WHERE id = $2 AND shared_with_user_id IS NULL',
+            [userId, pending.rows[0].id],
+          )
+          return { userId, name, permission: pending.rows[0].permission }
+        }
+      }
+
       return null // valid token, but no access to this note
     }
 

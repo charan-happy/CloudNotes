@@ -17,6 +17,7 @@ export default function ShareModal({ noteId, noteTitle, isDark, onClose }: {
   const [expiry, setExpiry] = useState('')   // '' | '1' | '7' | '30'
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
   const [copied, setCopied] = useState<string | null>(null)
 
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
@@ -29,7 +30,7 @@ export default function ShareModal({ noteId, noteTitle, isDark, onClose }: {
   useEffect(() => { load() /* eslint-disable-next-line */ }, [noteId])
 
   async function create() {
-    setError(''); setCreating(true)
+    setError(''); setNotice(''); setCreating(true)
     try {
       const share = await api.createShare(noteId, {
         permission,
@@ -42,6 +43,9 @@ export default function ShareModal({ noteId, noteTitle, isDark, onClose }: {
       // auto-copy the fresh link
       navigator.clipboard?.writeText(linkFor(share.token)).catch(() => {})
       setCopied(share.token); setTimeout(() => setCopied(null), 2000)
+      if (share.pending && share.shared_with_email) {
+        setNotice(`Invited ${share.shared_with_email} — they'll be asked to sign up when they open the link, then can collaborate live.`)
+      }
       api.track('note_shared', { note_id: noteId, permission })
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not create link')
@@ -107,11 +111,12 @@ export default function ShareModal({ noteId, noteTitle, isDark, onClose }: {
               </select>
             </div>
             <p className="text-[11px]" style={{ color: muted }}>
-              Leave username empty for a link <b>anyone</b> can open. Add a username or email to restrict it to one signed-in person.
+              Leave it empty for a link <b>anyone</b> can open. Add a username or email to restrict it to one person — if they don&apos;t have an account yet, they&apos;ll be invited to sign up.
             </p>
           </div>
 
           {error && <p className="text-xs text-red-400">{error}</p>}
+          {notice && <p className="text-xs text-emerald-400">{notice}</p>}
 
           <button onClick={create} disabled={creating}
             className="w-full py-2.5 rounded-xl text-sm font-bold text-white transition disabled:opacity-50"
@@ -138,6 +143,7 @@ export default function ShareModal({ noteId, noteTitle, isDark, onClose }: {
                           {s.permission}
                         </span>
                         {s.shared_with_user_id && <span className="text-[10px]" style={{ color: muted }}>👤 person-only</span>}
+                        {s.pending && <span className="text-[10px]" style={{ color: muted }}>⏳ invited {s.shared_with_email}</span>}
                         {s.has_password && <span className="text-[10px]" style={{ color: muted }}>🔒</span>}
                         {s.expires_at && <span className="text-[10px]" style={{ color: muted }}>⏳ {new Date(s.expires_at).toLocaleDateString()}</span>}
                       </div>

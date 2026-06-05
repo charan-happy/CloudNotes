@@ -53,13 +53,15 @@ func currentUser(c *gin.Context) string {
 	return s
 }
 
-// optionalUser returns the authenticated user id if a valid Bearer token is
-// present, or "" otherwise. Used by public share endpoints that behave
-// differently for logged-in recipients vs anonymous link visitors.
-func optionalUser(c *gin.Context, secret string) string {
+// optionalUser returns the authenticated user id and email if a valid Bearer
+// token is present, or ("", "") otherwise. Used by public share endpoints that
+// behave differently for logged-in recipients vs anonymous link visitors. The
+// email lets us match pending invites that were addressed to someone who hadn't
+// registered yet at share time.
+func optionalUser(c *gin.Context, secret string) (string, string) {
 	header := c.GetHeader("Authorization")
 	if !strings.HasPrefix(header, "Bearer ") {
-		return ""
+		return "", ""
 	}
 	token, err := jwt.Parse(strings.TrimPrefix(header, "Bearer "), func(t *jwt.Token) (interface{}, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
@@ -68,12 +70,13 @@ func optionalUser(c *gin.Context, secret string) string {
 		return []byte(secret), nil
 	})
 	if err != nil || !token.Valid {
-		return ""
+		return "", ""
 	}
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
-		return ""
+		return "", ""
 	}
 	sub, _ := claims["sub"].(string)
-	return sub
+	email, _ := claims["email"].(string)
+	return sub, email
 }
