@@ -462,4 +462,155 @@ Update the status column as you complete each gap on a side project.
 
 ---
 
-*Updated: 2026-06-05. New gaps added as they are discovered during CloudNotes implementation.*
+## 13. Resume-specific gaps (HIGH PRIORITY — on your resume, not covered in CloudNotes)
+
+> These were identified after reviewing your resume on 2026-06-05.
+> These are the items interviewers WILL ask about because they're explicitly on your resume.
+> Treat these as URGENT side projects — do them alongside or immediately after CloudNotes.
+
+---
+
+### 13.1 Ansible
+**Resume claim:** "Automated Linux server patching and configuration management via Ansible playbooks across 50+ servers — eliminated manual change windows entirely and reduced patching effort by 70%"
+**Gap:** CloudNotes has no Ansible. If an interviewer asks you to walk through a playbook, you will not be able to.
+**Why it matters:** Ansible is on every mid-to-large enterprise DevOps JD. Infosys-style companies use it heavily. Any interviewer who worked at scale will ask: "Walk me through a role you wrote. How did you handle idempotency? How did you manage dynamic inventory? How did you vault secrets?"
+**Frequency:** `★★★` in enterprise and IT services roles, `★★` in product companies
+**Difficulty:** `L2`
+**Urgent side project:** Set up 3 Linux VMs using Vagrant or Docker (simulate servers). Write an Ansible role (not just a playbook — a proper role with `tasks/`, `handlers/`, `defaults/`, `templates/`) that:
+1. Installs and configures Nginx
+2. Applies OS patches (`yum update -y` or `apt upgrade`)
+3. Creates a deploy user with SSH key
+4. Manages a config file using a Jinja2 template
+Run it against all 3 VMs. Use `ansible-vault` to store a secret. Run it twice and verify idempotency (no changes on second run).
+**Interview questions you must be able to answer:**
+- "What's the difference between a playbook and a role?"
+- "How do you handle idempotency in Ansible?"
+- "What is `ansible-vault` and when do you use it?"
+- "How does dynamic inventory work? When would you use it over static?"
+- "What's the difference between `notify` and `when`?"
+- "How did you test your playbooks before running on production?"
+**Key concepts:** Roles directory structure, handlers, `become: yes`, Jinja2 templates, `ansible-vault`, dynamic inventory (AWS EC2 plugin), tags, `--check` dry-run mode, idempotency design.
+
+---
+
+### 13.2 Jenkins (Infosys claim)
+**Resume claim:** "Owned CI/CD pipeline design for 8 applications using Jenkins and GitHub Actions — introduced build caching and parallel stages, reducing average build time by 35%"
+**Gap:** CloudNotes uses GitHub Actions. Jenkins is not touched.
+**Why it matters:** If you say Jenkins at Infosys, an interviewer from a similar background will immediately ask for details.
+**Frequency:** `★★★` in Indian IT services interviews, `★★` in enterprise
+**Difficulty:** `L2`
+**Urgent side project:** Run Jenkins in Docker locally (`docker run -p 8080:8080 jenkins/jenkins:lts`). Create a Declarative Pipeline (`Jenkinsfile`) for any one CloudNotes service that: checkout → lint → test → docker build → push to DockerHub. Add a parallel stage (lint and test run in parallel). Add a shared library function for the Docker push step. Store DockerHub credentials in Jenkins Credentials Manager.
+**Interview questions you must answer:**
+- "Show me a Jenkinsfile. Explain each section."
+- "What's the difference between declarative and scripted pipeline?"
+- "How did you handle credentials in Jenkins?"
+- "What is a shared library and why did you use it?"
+- "How did you implement parallel stages? What was the speedup?"
+- "How did you handle a failing stage — did it block everything or could you continue?"
+**Key concepts:** `agent`, `stages`, `parallel`, `post { always/failure/success }`, credentials binding, shared libraries (`vars/` and `src/`), Blue Ocean UI, `withCredentials`, JCasC (Jenkins Configuration as Code).
+
+---
+
+### 13.3 Azure — practical depth
+**Resume claim:** VMs, VNet, Azure SQL, Storage Account, App Gateway, Load Balancer, Azure Monitor, Key Vault, Azure DNS, Azure DevOps, Azure AD integration, IAM federation, multi-cloud VPN, HIPAA on Azure.
+**Gap:** CloudNotes is AWS only. You have AZ-900 (fundamentals) but the resume claims operational depth.
+**Why it matters:** Interviewers at companies using Azure will verify specifics. "Walk me through the VNet setup" or "How did you federate Azure AD with AWS IAM?" are direct traps for someone who hasn't done it.
+**Frequency:** `★★★` at companies using Azure, Indian IT services firms
+**Difficulty:** `L3`
+**Urgent side project (do in phases):**
+- Phase A (1 day): Create a Resource Group. Deploy a VNet with public + private subnets. Deploy a VM in each. Verify connectivity. Set up a Network Security Group. This proves basic Azure networking.
+- Phase B (1 day): Deploy AKS (Azure Kubernetes Service) in the private subnet. Deploy auth-service on it. Set up Azure Container Registry (ACR) and pull from it. This proves AKS operations.
+- Phase C (1 day): Set up Azure Key Vault. Store a secret. Access it from the AKS pod using Managed Identity (not hardcoded credentials). This proves secret management.
+- Phase D (2 hours): Set up Azure DevOps pipeline for one service. Compare it to GitHub Actions. Know the differences cold.
+**The multi-cloud VPN claim** — This is the riskiest item. Site-to-site VPN between AWS and Azure is a complex, expensive setup. Know the theory: AWS Virtual Private Gateway + Azure VPN Gateway + BGP or static routing + shared PSK. Be able to draw it. Say you helped configure and validate it, not that you solo-designed it.
+**Key concepts to know cold:** Managed Identity vs Service Principal, Azure RBAC vs IAM (role assignments on resources), VNet peering vs VPN Gateway, NSG vs Security Groups, Azure AD App Registration, Workload Identity for AKS, difference between Azure Monitor and Prometheus.
+
+---
+
+### 13.4 HIPAA and GDPR compliance
+**Resume claim:** "Delivered HIPAA and GDPR-compliant infrastructure — encryption at rest (KMS), encryption in transit (TLS), VPC network segmentation, CloudTrail audit logging, least-privilege IAM, documented compliance controls for client audit requirements"
+**Gap:** The controls listed are real and you may have implemented them. But compliance interviewers ask WHY each control maps to which requirement.
+**Why it matters:** Healthcare and fintech companies screen for this. "What does HIPAA's Technical Safeguard section require?" is a question you cannot answer by guessing.
+**Frequency:** `★★` in healthcare, fintech, and any company with enterprise clients
+**Difficulty:** `L2` (mostly study, not build)
+**What to study (2 days of reading):**
+HIPAA Technical Safeguards (45 CFR § 164.312) — the four categories:
+1. Access Control — unique user IDs, emergency access, automatic logoff, encryption
+2. Audit Controls — hardware/software activity recording → CloudTrail, CloudWatch Logs, VPC Flow Logs
+3. Integrity Controls — ensure PHI isn't improperly altered → S3 object versioning, checksums
+4. Transmission Security — encryption in transit → TLS everywhere, no HTTP endpoints
+
+GDPR Article 32 — "appropriate technical and organisational measures":
+- Pseudonymisation and encryption of personal data
+- Ability to restore data (backup and restore)
+- Regular testing of security measures (vulnerability scanning → Trivy/SonarQube)
+- Data minimisation
+
+**What you should be able to say in an interview:**
+"For HIPAA we implemented: CloudTrail for all API call logging (audit control), KMS-encrypted RDS and S3 (encryption at rest), ACM certificates + enforced HTTPS via ALB listener rules (transmission security), least-privilege IAM roles per service (access control). We documented each control in a compliance matrix mapping the 164.312 sections to our specific AWS resources. For GDPR we ensured no PII was logged in application logs (checked via log scanning), data was stored only in eu-west-1 (data residency), and we could delete all user data on request (right to erasure — implemented as a delete API endpoint that cascades)."
+
+---
+
+### 13.5 Metrics on your resume — be able to defend every number
+**Resume claims with specific numbers:**
+- "Deployment time from 25 min to under 8 min" — be ready to explain: what was slow in the 25 min pipeline? Which specific changes brought it to 8 min? (parallel jobs? caching? removing unnecessary steps?)
+- "Rollback time from 20 min to under 3 min" — explain: what was the old rollback process? (manual kubectl, redeploy, wait) vs new (ArgoCD app rollback command = 10 seconds, but pod restart takes ~2 min)
+- "99.6% uptime" — know the math: 99.6% = 52.6 hours downtime per year = 4.4 hours per month. How did you measure it? (uptime robot, Grafana SLO dashboard, ALB 5xx rate?)
+- "22% monthly cost reduction" — what specifically was reduced? (oversized EC2 instances? idle RDS? unused EBS volumes? S3 lifecycle policies?)
+- "40% reduction in debugging time" — how did you measure debugging time before and after?
+- "Blocking 100% of HIGH/CRITICAL CVEs before staging" — how? (Trivy with `--exit-code 1 --severity HIGH,CRITICAL` in CI, pipeline fails on any finding)
+
+If you can't explain the methodology behind each number, an experienced interviewer will call it out immediately.
+
+---
+
+## Updated status tracking
+
+| # | Topic | Priority | Status | Completed |
+|---|---|---|---|---|
+| 1.1 | Jenkins | HIGH — on resume | Not started | — |
+| 1.2 | GitLab CI/CD | MEDIUM | Not started | — |
+| 1.3 | Tekton | LOW | Not started | — |
+| 1.4 | Multi-arch Docker builds | LOW | Not started | — |
+| 2.1 | Istio service mesh | MEDIUM | Not started | — |
+| 2.2 | Cluster Autoscaler / Karpenter | MEDIUM | Not started | — |
+| 2.3 | CRDs and Operators | LOW | Not started | — |
+| 2.4 | Advanced scheduling | MEDIUM | Not started | — |
+| 2.5 | etcd backup/restore | MEDIUM | Not started | — |
+| 2.6 | cert-manager | MEDIUM | Not started | — |
+| 3.1 | OpenTelemetry + Jaeger | MEDIUM | Not started | — |
+| 3.2 | Datadog / New Relic | LOW | Not started | — |
+| 3.3 | ELK Stack | MEDIUM | Not started | — |
+| 3.4 | SLO tooling (Sloth) | LOW | Not started | — |
+| 4.1 | Terragrunt | LOW | Not started | — |
+| 4.2 | Atlantis | LOW | Not started | — |
+| 4.3 | Pulumi | LOW | Not started | — |
+| 5.1 | HashiCorp Vault | MEDIUM | Not started | — |
+| 5.2 | OPA / Kyverno | MEDIUM | Not started | — |
+| 5.3 | Falco | LOW | Not started | — |
+| 5.4 | SAST / Snyk | LOW | Not started | — |
+| 6.1 | Istio traffic management | LOW | Not started | — |
+| 6.2 | Cilium / eBPF | LOW | Not started | — |
+| 7.1 | GCP | LOW | Not started | — |
+| 7.2 | Azure + Azure DevOps | HIGH — on resume | Not started | — |
+| 7.3 | Multi-cloud strategy | HIGH — on resume | Not started | — |
+| 8.1 | PgBouncer | MEDIUM | Not started | — |
+| 8.2 | Redis | MEDIUM | Not started | — |
+| 8.3 | Kafka / message queues | LOW | Not started | — |
+| 9.1 | Backstage | LOW | Not started | — |
+| 9.2 | Crossplane | LOW | Not started | — |
+| 10.1 | LitmusChaos | LOW | Not started | — |
+| 10.2 | Runbook engineering | MEDIUM | Not started | — |
+| 11.1 | Skaffold / Tilt | LOW | Not started | — |
+| 12.1 | Incident management process | HIGH | Not started | — |
+| 12.2 | Toil measurement | LOW | Not started | — |
+| 12.3 | FinOps / Kubecost | MEDIUM | Not started | — |
+| **13.1** | **Ansible** | **URGENT — on resume** | **Not started** | **—** |
+| **13.2** | **Jenkins** | **URGENT — on resume** | **Not started** | **—** |
+| **13.3** | **Azure depth** | **URGENT — on resume** | **Not started** | **—** |
+| **13.4** | **HIPAA/GDPR** | **URGENT — on resume** | **Not started** | **—** |
+| **13.5** | **Defend resume metrics** | **URGENT** | **Not started** | **—** |
+
+---
+
+*Updated: 2026-06-05. Resume-specific gaps added after reviewing NagaCharan_DevOpsEngineer_4+YOE.pdf.*
