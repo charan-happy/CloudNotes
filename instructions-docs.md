@@ -1083,4 +1083,33 @@ When you have done these 4 things, come back and tell me what happened.
 
 ---
 
+### 2026-06-05 — GitHub access + repository setup
+
+**What happened this session:**
+- User got GitHub repo access as the DevOps engineer
+- Senior explained the correct order: configure repo settings → verify local runs → write CI
+- User created branch protection **Rulesets** (modern GitHub feature, better than old branch protection rules)
+  - `dev-ruleset` — 2 rules targeting `dev` branch
+  - `main-ruleset` — 3 rules targeting `main` branch
+- Senior explained why Squash-only merge strategy and auto-delete head branches matter
+
+**Key concept learned — Rulesets vs Branch Protection Rules:**
+- GitHub Rulesets (new) = can target multiple branches by pattern, can be layered, can be bypassed by specific roles, push rules supported
+- Branch Protection Rules (old, being deprecated) = one rule per branch, less flexible
+- Both achieve the same goal. Rulesets are the correct choice for new repos going forward.
+
+**What still needs verification:**
+- Confirm exact rules inside each ruleset are correct (see Phase 1.3 in this file)
+- Merge strategy setting (squash-only) — configured under Settings → General, not Rulesets
+- Auto-delete head branches — same location
+
+**Next tasks in order:**
+1. Verify ruleset rules match the Phase 1.3 checklist
+2. Settings → General → set squash-only merge + auto-delete head branches
+3. Create `.github/pull_request_template.md` on `dev` branch
+4. Install pre-commit + create `.pre-commit-config.yaml`
+5. Run `docker compose up --build` and verify all services healthy
+
+---
+
 *Every session adds a new entry to this log. Every question asked gets answered here for future reference.*
