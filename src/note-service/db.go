@@ -37,13 +37,17 @@ CREATE TABLE IF NOT EXISTS note_shares (
     token               TEXT         NOT NULL UNIQUE,
     permission          VARCHAR(8)   NOT NULL DEFAULT 'view',
     shared_with_user_id UUID,
+    shared_with_email   TEXT,        -- pending invite: addressee has no account yet
     password_hash       TEXT,
     expires_at          TIMESTAMPTZ,
     created_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
+-- Migrate older databases that predate pending email invites.
+ALTER TABLE note_shares ADD COLUMN IF NOT EXISTS shared_with_email TEXT;
 CREATE INDEX IF NOT EXISTS idx_shares_token ON note_shares (token);
 CREATE INDEX IF NOT EXISTS idx_shares_note  ON note_shares (note_id);
 CREATE INDEX IF NOT EXISTS idx_shares_with  ON note_shares (shared_with_user_id);
+CREATE INDEX IF NOT EXISTS idx_shares_email ON note_shares (LOWER(shared_with_email));
 `
 
 // newPool opens a pgx connection pool, retrying until the database is reachable,

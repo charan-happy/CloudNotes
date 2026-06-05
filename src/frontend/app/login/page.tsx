@@ -6,6 +6,15 @@ import Link from 'next/link'
 import { login as apiLogin, saveSession, track } from '../../lib/api'
 import { useTheme, palette } from '../../lib/theme'
 
+// Where to go after auth: honor ?next= (e.g. a /shared/<token> invite link),
+// but only same-origin paths — never an external or protocol-relative URL.
+function safeNext(): string {
+  if (typeof window === 'undefined') return '/dashboard'
+  const next = new URLSearchParams(window.location.search).get('next')
+  if (next && next.startsWith('/') && !next.startsWith('//')) return next
+  return '/dashboard'
+}
+
 function Logo({ size = 38 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 36 36" fill="none">
@@ -82,7 +91,7 @@ export default function LoginPage() {
       const result = await apiLogin(username, password)
       saveSession(result)
       track('user_login', { username: result.username })
-      router.push('/dashboard')
+      router.push(safeNext())
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed')
     } finally {

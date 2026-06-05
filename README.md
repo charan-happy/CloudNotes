@@ -58,6 +58,7 @@ So instead of reading about microservices, we **built five of them across four l
 ### 🧠 Notes that think & flex
 - **✨ AI assist** — improve, rephrase, fix grammar, summarize, change tone
 - **⚡ Real-time co-editing** — multiple people, one note, **live cursors** + instant sync (Yjs CRDT, conflict-free)
+- **🤝 Share & invite** — by link, username, or **email** · invite people who aren't members yet (they sign up, land right back on the note, and collaborate live)
 - **Tags** (Personal · Work · Ideas…) with color + instant filtering
 - **Dark / light** mode — app-wide _and_ per-note
 - **Zoom** the page, **resize** the sidebar, **adjust** the header

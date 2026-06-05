@@ -116,10 +116,16 @@ export default function SharedNotePage() {
 
         {state === 'login' && (
           <div className="max-w-sm mx-auto mt-16 text-center">
-            <div className="text-5xl mb-4">🔑</div>
-            <h1 className="font-bold text-xl mb-2">Sign in to view</h1>
-            <p className="text-sm mb-5" style={{ color: muted }}>This note was shared with a specific person. Sign in to the account it was shared with.</p>
-            <Link href={`/login?next=/shared/${token}`} className="inline-block px-6 py-2.5 rounded-xl text-sm font-bold text-white" style={{ background: 'linear-gradient(135deg,#8B5CF6,#EC4899)' }}>Sign in</Link>
+            <div className="text-5xl mb-4">🤝</div>
+            <h1 className="font-bold text-xl mb-2">Sign up to collaborate</h1>
+            <p className="text-sm mb-5" style={{ color: muted }}>
+              This note was shared with you. Create a free account (or sign in) with the email it was sent to, and you&apos;ll jump straight into editing it live.
+            </p>
+            <Link href={`/register?next=/shared/${token}`} className="inline-block px-6 py-2.5 rounded-xl text-sm font-bold text-white" style={{ background: 'linear-gradient(135deg,#8B5CF6,#EC4899)' }}>Create account</Link>
+            <p className="text-xs mt-4" style={{ color: muted }}>
+              Already have an account?{' '}
+              <Link href={`/login?next=/shared/${token}`} className="font-semibold" style={{ color: '#A78BFA' }}>Sign in</Link>
+            </p>
           </div>
         )}
 

@@ -22,14 +22,16 @@ type CreateShareRequest struct {
 }
 
 type Share struct {
-	ID               string     `json:"id"`
-	NoteID           string     `json:"note_id"`
-	Token            string     `json:"token"`
-	Permission       string     `json:"permission"`
-	SharedWith       *string    `json:"shared_with_user_id,omitempty"`
-	HasPassword      bool       `json:"has_password"`
-	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
-	CreatedAt        time.Time  `json:"created_at"`
+	ID              string     `json:"id"`
+	NoteID          string     `json:"note_id"`
+	Token           string     `json:"token"`
+	Permission      string     `json:"permission"`
+	SharedWith      *string    `json:"shared_with_user_id,omitempty"`
+	SharedWithEmail *string    `json:"shared_with_email,omitempty"` // set for a pending invite
+	Pending         bool       `json:"pending"`                     // invited an email with no account yet
+	HasPassword     bool       `json:"has_password"`
+	ExpiresAt       *time.Time `json:"expires_at,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
 }
 
 func genShareToken() (string, error) {
@@ -66,27 +68,37 @@ func (h *Handler) createShare(c *gin.Context) {
 		req.Permission = "view"
 	}
 
-	// Resolve a target user, if sharing with a specific person — by username OR email.
+	// Resolve a target, if sharing with a specific person — by username OR email.
+	//   • existing user  → bind to their user id (immediate access)
+	//   • unknown email  → pending invite; they get access when they register
+	//   • unknown username→ error (usernames only exist after registration)
 	var sharedWith *string
+	var sharedEmail *string
 	if req.SharedWithUsername != nil && *req.SharedWithUsername != "" {
 		who := strings.TrimSpace(*req.SharedWithUsername)
+		isEmail := strings.Contains(who, "@")
 		col := "username"
-		if strings.Contains(who, "@") {
+		if isEmail {
 			col = "email"
 		}
 		var uid string
 		err := h.pool.QueryRow(ctx,
 			`SELECT id::text FROM users WHERE LOWER(`+col+`) = LOWER($1)`, who,
 		).Scan(&uid)
-		if errors.Is(err, pgx.ErrNoRows) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "No CloudNotes user found with that username or email."})
-			return
-		}
-		if err != nil {
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			if !isEmail {
+				c.JSON(http.StatusNotFound, gin.H{"error": "No CloudNotes user with that username. Invite by email to share with someone who hasn't joined yet."})
+				return
+			}
+			e := strings.ToLower(who)
+			sharedEmail = &e // pending invite
+		case err != nil:
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "lookup failed"})
 			return
+		default:
+			sharedWith = &uid
 		}
-		sharedWith = &uid
 	}
 
 	// Optional password gate.
@@ -116,15 +128,16 @@ func (h *Handler) createShare(c *gin.Context) {
 
 	var sh Share
 	err = h.pool.QueryRow(ctx,
-		`INSERT INTO note_shares (note_id, owner_id, token, permission, shared_with_user_id, password_hash, expires_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7)
-		 RETURNING id, note_id, token, permission, shared_with_user_id, (password_hash IS NOT NULL), expires_at, created_at`,
-		noteID, owner, token, req.Permission, sharedWith, pwHash, expiresAt,
-	).Scan(&sh.ID, &sh.NoteID, &sh.Token, &sh.Permission, &sh.SharedWith, &sh.HasPassword, &sh.ExpiresAt, &sh.CreatedAt)
+		`INSERT INTO note_shares (note_id, owner_id, token, permission, shared_with_user_id, shared_with_email, password_hash, expires_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+		 RETURNING id, note_id, token, permission, shared_with_user_id, shared_with_email, (password_hash IS NOT NULL), expires_at, created_at`,
+		noteID, owner, token, req.Permission, sharedWith, sharedEmail, pwHash, expiresAt,
+	).Scan(&sh.ID, &sh.NoteID, &sh.Token, &sh.Permission, &sh.SharedWith, &sh.SharedWithEmail, &sh.HasPassword, &sh.ExpiresAt, &sh.CreatedAt)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not create share"})
 		return
 	}
+	sh.Pending = sh.SharedWith == nil && sh.SharedWithEmail != nil
 	c.JSON(http.StatusCreated, sh)
 }
 
@@ -134,7 +147,7 @@ func (h *Handler) listShares(c *gin.Context) {
 	defer cancel()
 
 	rows, err := h.pool.Query(ctx,
-		`SELECT id, note_id, token, permission, shared_with_user_id, (password_hash IS NOT NULL), expires_at, created_at
+		`SELECT id, note_id, token, permission, shared_with_user_id, shared_with_email, (password_hash IS NOT NULL), expires_at, created_at
 		 FROM note_shares WHERE note_id = $1 AND owner_id = $2 ORDER BY created_at DESC`,
 		c.Param("id"), currentUser(c),
 	)
@@ -147,10 +160,11 @@ func (h *Handler) listShares(c *gin.Context) {
 	shares := make([]Share, 0)
 	for rows.Next() {
 		var s Share
-		if err := rows.Scan(&s.ID, &s.NoteID, &s.Token, &s.Permission, &s.SharedWith, &s.HasPassword, &s.ExpiresAt, &s.CreatedAt); err != nil {
+		if err := rows.Scan(&s.ID, &s.NoteID, &s.Token, &s.Permission, &s.SharedWith, &s.SharedWithEmail, &s.HasPassword, &s.ExpiresAt, &s.CreatedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "scan failed"})
 			return
 		}
+		s.Pending = s.SharedWith == nil && s.SharedWithEmail != nil
 		shares = append(shares, s)
 	}
 	c.JSON(http.StatusOK, gin.H{"shares": shares, "count": len(shares)})
@@ -192,13 +206,14 @@ func (h *Handler) getSharedNote(c *gin.Context) {
 		shareID, noteID, permission string
 		ownerID                     string
 		sharedWith                  *string
+		sharedEmail                 *string
 		pwHash                      *string
 		expiresAt                   *time.Time
 	)
 	err := h.pool.QueryRow(ctx,
-		`SELECT id, note_id, owner_id, permission, shared_with_user_id, password_hash, expires_at
+		`SELECT id, note_id, owner_id, permission, shared_with_user_id, shared_with_email, password_hash, expires_at
 		 FROM note_shares WHERE token = $1`, c.Param("token"),
-	).Scan(&shareID, &noteID, &ownerID, &permission, &sharedWith, &pwHash, &expiresAt)
+	).Scan(&shareID, &noteID, &ownerID, &permission, &sharedWith, &sharedEmail, &pwHash, &expiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "This share link doesn't exist or was revoked."})
 		return
@@ -208,7 +223,7 @@ func (h *Handler) getSharedNote(c *gin.Context) {
 		return
 	}
 
-	if code, msg := h.checkAccess(c, ownerID, sharedWith, pwHash, expiresAt); code != http.StatusOK {
+	if code, msg := h.checkAccess(c, shareID, ownerID, sharedWith, sharedEmail, pwHash, expiresAt); code != http.StatusOK {
 		c.JSON(code, gin.H{"error": msg, "needs_password": code == http.StatusUnauthorized && pwHash != nil})
 		return
 	}
@@ -228,15 +243,16 @@ func (h *Handler) updateSharedNote(c *gin.Context) {
 	defer cancel()
 
 	var (
-		noteID, permission, ownerID string
-		sharedWith                  *string
-		pwHash                      *string
-		expiresAt                   *time.Time
+		shareID, noteID, permission, ownerID string
+		sharedWith                           *string
+		sharedEmail                          *string
+		pwHash                               *string
+		expiresAt                            *time.Time
 	)
 	err := h.pool.QueryRow(ctx,
-		`SELECT note_id, owner_id, permission, shared_with_user_id, password_hash, expires_at
+		`SELECT id, note_id, owner_id, permission, shared_with_user_id, shared_with_email, password_hash, expires_at
 		 FROM note_shares WHERE token = $1`, c.Param("token"),
-	).Scan(&noteID, &ownerID, &permission, &sharedWith, &pwHash, &expiresAt)
+	).Scan(&shareID, &noteID, &ownerID, &permission, &sharedWith, &sharedEmail, &pwHash, &expiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "share not found"})
 		return
@@ -246,7 +262,7 @@ func (h *Handler) updateSharedNote(c *gin.Context) {
 		return
 	}
 
-	if code, msg := h.checkAccess(c, ownerID, sharedWith, pwHash, expiresAt); code != http.StatusOK {
+	if code, msg := h.checkAccess(c, shareID, ownerID, sharedWith, sharedEmail, pwHash, expiresAt); code != http.StatusOK {
 		c.JSON(code, gin.H{"error": msg})
 		return
 	}
@@ -336,21 +352,37 @@ func (h *Handler) sharedWithMe(c *gin.Context) {
 
 // checkAccess enforces expiry, audience (specific-user) and password rules.
 // Returns (200, "") when access is allowed.
-func (h *Handler) checkAccess(c *gin.Context, ownerID string, sharedWith, pwHash *string, expiresAt *time.Time) (int, string) {
+func (h *Handler) checkAccess(c *gin.Context, shareID, ownerID string, sharedWith, sharedEmail, pwHash *string, expiresAt *time.Time) (int, string) {
 	if expiresAt != nil && time.Now().After(*expiresAt) {
 		return http.StatusGone, "This share link has expired."
 	}
-	viewer := optionalUser(c, h.jwtSecret)
+	viewer, viewerEmail := optionalUser(c, h.jwtSecret)
 
-	// Shared with a specific user → only that user (or the owner) may open it.
-	if sharedWith != nil {
+	// Shared with a specific person → only that person (or the owner) may open it.
+	// "Person" is either a bound user id, or a pending invite addressed to an email.
+	if sharedWith != nil || sharedEmail != nil {
 		if viewer == "" {
 			return http.StatusUnauthorized, "Please sign in to open this shared note."
 		}
-		if viewer != *sharedWith && viewer != ownerID {
-			return http.StatusForbidden, "This note was shared with a specific person."
+		if viewer == ownerID {
+			return http.StatusOK, ""
 		}
-		return http.StatusOK, ""
+		if sharedWith != nil && viewer == *sharedWith {
+			return http.StatusOK, ""
+		}
+		// Pending invite: the recipient has now registered with the invited email.
+		// Match on the JWT email claim, then "claim" the invite so future opens
+		// resolve by user id (and it shows up in their "shared with me" list).
+		if sharedWith == nil && sharedEmail != nil && viewerEmail != "" &&
+			strings.EqualFold(viewerEmail, *sharedEmail) {
+			ctx, cancel := h.ctx(c)
+			defer cancel()
+			_, _ = h.pool.Exec(ctx,
+				`UPDATE note_shares SET shared_with_user_id = $1
+				 WHERE id = $2 AND shared_with_user_id IS NULL`, viewer, shareID)
+			return http.StatusOK, ""
+		}
+		return http.StatusForbidden, "This note was shared with a specific person."
 	}
 
 	// Public link with a password → owner bypasses, everyone else must provide it.
